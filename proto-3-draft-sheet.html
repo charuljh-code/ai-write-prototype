@@ -29,7 +29,7 @@
        write:  compose → prompt (chat dock on the keyboard, "7 left")
                        → gen (keyboard drops, sheet comes up, draft streams)
                        → sheet (versions, Tone / Length, feedback, describe a
-                         change, ✓ Insert beside it) → compose + Undo
+                         change, Regenerate / Insert) → compose + Undo
 
        refine: compose with a selection (Figma 5525:2355 — highlight, handles,
                iOS edit menu, the bar collapses to "AI Refine")
@@ -57,7 +57,8 @@
 
     function sheet(inner, kbdUp) {
       return '<div class="ds-sheet' + (kbdUp ? ' kb' : '') + '"><div class="sw-grab"></div>' +
-        '<div class="sw-head">' + ico('i-ai-write') + '<span class="sw-title">Smart Write by Titan AI</span></div>' +
+        '<div class="sw-head">' + ico('i-ai-write') + '<span class="sw-title">Smart Write by Titan AI</span>' +
+        '<svg class="icon sw-x" data-act="close"><use href="#i-close"/></svg></div>' +
         inner + (kbdUp ? '' : '<div class="home-ind"></div>') + '</div>';
     }
 
@@ -69,12 +70,6 @@
     function reviewCard(st, act) {
       var v = cur(st);
       return card(st, { subject: v.subject, text: v.text, ver: { i: st.cur, n: st.hist.length }, key: 'v' + st.cur, act: act });
-    }
-
-    /* Insert (Replace when refining) is a tick beside the change field */
-    function okBtn(st) {
-      var lbl = refining(st) ? 'Replace' : 'Insert';
-      return '<button type="button" class="ds-ok" data-act="insert" aria-label="' + lbl + '" title="' + lbl + '">' + ico('i-check') + '</button>';
     }
 
     function tools(st) {
@@ -126,13 +121,16 @@
             o.kbd = true; o.scrim = 'cancel-ask';
             o.sheet = sheet(reviewCard(st, 'cancel-ask') + P.cField({
               text: st.ask || 'Describe your change', ph: !st.ask, focus: true,
-              send: st.ask.trim() ? 'refine' : '', after: okBtn(st)
+              send: st.ask.trim() ? 'refine' : '', close: 'cancel-ask'
             }), true);
             return P.shell(o);
           }
           o.scrim = st.menu ? 'menu' : 'close'; o.over = over;
           o.sheet = sheet(reviewCard(st, st.menu ? 'menu' : '') + tools(st) + P.cLeft(st.left) +
-            P.cField({ text: 'Describe your change', ph: true, tap: 'ask', off: !st.left, after: okBtn(st) }));
+            P.cField({ text: 'Describe your change', ph: true, tap: 'ask', off: !st.left }) +
+            '<div class="sw-foot fill"><button type="button" class="sw-btn ghost' + (st.left ? '" data-act="regen"' : ' off"') + '>' +
+            ico('i-retry') + ' Regenerate</button>' +
+            '<button type="button" class="sw-btn" data-act="insert">' + (refining(st) ? 'Replace' : 'Insert') + '</button></div>');
           return P.shell(o);
       }
     }
