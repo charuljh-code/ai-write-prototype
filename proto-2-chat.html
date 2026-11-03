@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <title>Replacing content directly (like web)</title>
+  <link rel="stylesheet" href="proto.css">
+</head>
+
+<body>
+
+  <aside class="panel">
+    <nav class="others">
+      <a class="on" href="proto-2-chat.html"><span class="n">1</span>Replacing content directly (like web)</a>
+      <a href="proto-3-draft-sheet.html"><span class="n">2</span>Dedicated bottom sheet</a>
+    </nav>
+  </aside>
+
+  <div class="device-wrap">
+    <div class="device" id="phone"></div>
+  </div>
+
+  <script src="proto.js"></script>
+  <script>
+    /* ══════════════════════════════════════════════════════════════════════
+       Direction 2 — Chat with AI (web parity, Figma 4691:190081), with AI Refine
+
+       write:  compose → dock/prompt (field rides the keyboard, "7 left" inside it)
+                       → dock/gen (keyboard drops, the body fills, Stop in the field)
+                       → dock/refine (describe a change, Tone / Length, undo / redo,
+                         feedback, counter → upgrade banner at 5 or fewer)
+                       → × keeps the draft in the email
+
+       refine: compose with a selection (Figma 5525:2355 — highlight, handles,
+               iOS edit menu, the bar collapses to "AI Refine")
+                       → the same dock, with Tone / Length under the prompt
+                       → the rewrite streams into the email in place of the
+                         selection; undo walks back as far as the original words
+                       → × keeps whichever version is showing
+
+       Every generation is kept in a history; undo / redo walk it. Text the
+       user had in the body before AI Write stays above the generated part.
+       Language (EN ▾) is dropped — not supported on mobile.
+       ══════════════════════════════════════════════════════════════════════ */
+
+    var ico = P.ico;
+
+    function copy(q) { return JSON.parse(JSON.stringify(q)); }
+    function cur(st) { return st.hist[st.cur]; }
+    function refining(st) { return st.kind === 'refine'; }
+    function joinBody(st, t) { return st.pre && st.pre.body ? st.pre.body + '\n\n' + t : t; }
+    function joinSubj(st, s) { return st.pre && st.pre.subject.trim() ? st.pre.subject : s; }
+    /* put the current version into the email: the whole draft, or just the refined range */
+    function apply(st) {
+      var v = cur(st);
+      if (!refining(st) && v.original) { st.subject = st.pre.subject; st.body = st.pre.body; return; }   /* undo back to before AI Write */
+      if (!refining(st)) { st.subject = joinSubj(st, v.subject); st.body = joinBody(st, v.text); return; }
+      st.body = st.body.slice(0, st.rf.s) + v.text + st.body.slice(st.rf.e);
+      st.rf.e = st.rf.s + v.text.length;
+    }
+
+    function ib(id, act) {
+      return '<span class="cx-ib' + (act ? '" data-act="' + act + '"' : ' off"') + '>' + ico(id) + '</span>';
+    }
+
+    /* Tone / Length shortcuts, history and feedback — hidden while typing */
+    function tools(st) {
+      var q = cur(st).params, off = !st.left;
+      return '<div class="cx-row">' +
+        P.cChip('tone', q.tone || 'Tone', P.TONES, st.menu === 'tone', off) +
+        P.cChip('len', q.len || 'Length', refining(st) ? P.sel.LENS : P.LENS, st.menu === 'len', off) +
+        '<span class="cx-push"></span>' +
+        ib('i-undo', st.cur > 0 ? 'hist:-1' : '') + ib('i-redo', st.cur < st.hist.length - 1 ? 'hist:1' : '') +
+        '<span class="cx-sep"></span>' +
+        '<span class="cx-ib' + (st.fb[st.cur] === 'up' ? ' on' : '') + '" data-act="fb:up">' + ico('i-thumb-up') + '</span>' +
+        '<span class="cx-ib' + (st.fb[st.cur] === 'down' ? ' on' : '') + '" data-act="fb:down">' + ico('i-thumb-down') + '</span></div>';
+    }
+
+    /* while refining, the email shows the range being worked on: the
+       selection, the rewrite streaming into it, then the version in place */
+    function refineBody(st) {
+      var g = st.gen, t = st.body, cls = cur(st).original ? 'selhl' : 'rf-new', e = st.rf.e;
+      if (g) {
+        if (g.text == null) cls = 'selhl shimmer';
+        else { t = t.slice(0, st.rf.s) + g.text + t.slice(st.rf.e); e = st.rf.s + g.text.length; cls = 'rf-new'; }
+      }
+      return P.sel.bodyHtml(t, { s: st.rf.s, e: e, cls: cls }, null);
+    }
+
+    function view(st) {
+      var o = { subject: st.subject, body: st.body, toast: st.toast, bar: null };
+      if (st.mode === 'compose') {
+        o.focus = st.focus === 'subject' ? 'subject' : null; o.kbd = !!st.focus; o.bodyHtml = P.sel.body(st);
+        o.bar = st.sel ? P.sel.pill('refine-open') : P.COMPOSE_ROW('open');
+        o.over = st.sel ? P.sel.MENU : '';
+        return P.shell(o);
+      }
+      if (refining(st)) o.bodyHtml = refineBody(st);
+      switch (st.phase) {
+        case 'prompt':    /* the bar becomes the prompt — riding on the keyboard */
+          o.kbd = !!st.left; o.fieldsBottom = refining(st) ? 336 + 112 : 400;
+          if (refining(st)) o.catcher = st.menu ? 'menu' : '';
+          o.sheet = P.dock(P.cField({
+            text: st.prompt || (refining(st) ? 'Describe how to change it' : 'Describe your email'), ph: !st.prompt,
+            focus: !!st.left, off: !st.left, count: st.left + ' left', send: st.prompt.trim() && st.left ? 'go' : '', close: 'close'
+          }) + (refining(st) && st.left ? '<div class="cx-row">' +
+            P.cChip('tone', 'Tone', P.TONES, st.menu === 'tone') + P.cChip('len', 'Length', P.sel.LENS, st.menu === 'len') +
+            '</div>' : '') + (st.left ? '' : P.cLeft(0)), !!st.left);
+          return P.shell(o);
+
+        case 'gen':       /* keyboard drops so the draft can be read as it fills the body */
+          var g = st.gen;
+          if (refining(st)) o.fieldsBottom = 90;
+          else {
+            o.padBottom = 140;
+            if (g.text != null) { o.subject = g.subject; o.body = g.text; o.pin = true; }
+            else if (g.first) o.bodyHtml = (st.pre.body ? P.fmt(st.pre.body) + '<br><br>' : '') + P.BARS;
+            else o.bodyHtml = '<div class="shimmer">' + P.fmt(st.body) + '</div>';
+          }
+          o.sheet = P.dock(P.cField({ text: refining(st) ? 'Refining…' : 'Generating…', ph: true, busy: 'stop', close: 'stop' }));
+          return P.shell(o);
+
+        case 'refine':
+          if (st.asking) {  /* typing a follow-up: shortcuts step aside, keyboard back */
+            o.kbd = true; o.fieldsBottom = 400; o.catcher = 'cancel-ask'; o.scrollKey = 'v' + st.cur;
+            o.sheet = P.dock(P.cField({
+              text: st.ask || 'Describe your change', ph: !st.ask, focus: true,
+              send: st.ask.trim() ? 'refine' : '', close: 'cancel-ask'
+            }), true);
+            return P.shell(o);
+          }
+          if (refining(st)) o.fieldsBottom = 200; else { o.padBottom = 200; o.scrollKey = 'v' + st.cur; }
+          o.catcher = st.menu ? 'menu' : '';
+          o.sheet = P.dock(P.cField({ text: 'Describe your change', ph: true, tap: 'ask', close: 'close', off: !st.left }) +
+            tools(st) + P.cLeft(st.left));
+          return P.shell(o);
+      }
+    }
+
+    function gen(st, api, q, first) {
+      if (!st.left) return;
+      st.left--; st.phase = 'gen'; st.asking = false; st.focus = null; st.menu = null; st.prompt = '';
+      if (refining(st)) {
+        var text = P.ai.rewrite(st.rf.orig, q);
+        /* a new version never repeats the one on screen */
+        for (var n = 0; text === cur(st).text && n < 4; n++) { q.variant++; text = P.ai.rewrite(st.rf.orig, q); }
+        st.gen = { first: first, text: null };
+        st.stop = P.stream(text, function (t) { st.gen.text = t; api.render(); }, function () {
+          st.hist.push({ params: q, text: text });
+          st.cur = st.hist.length - 1; apply(st);
+          st.gen = null; st.stop = null; st.phase = 'refine';
+          api.render();
+        });
+        return api.render();
+      }
+      if (first) st.pre = { subject: st.subject, body: st.body.replace(/\s+$/, '') };
+      var out = P.ai.compose(q);
+      st.gen = { first: first, text: null, subject: joinSubj(st, out.subject) };
+      st.stop = P.stream(out.text, function (t) { st.gen.text = joinBody(st, t); api.render(); }, function () {
+        /* the email as it was before AI Write is version 0, so undo works after the first draft too */
+        if (!st.hist.length) st.hist.push({ params: q, subject: st.pre.subject, text: st.pre.body, original: true });
+        st.hist.push({ params: q, subject: out.subject, text: out.text });
+        st.cur = st.hist.length - 1; apply(st);
+        st.gen = null; st.stop = null; st.phase = 'refine';
+        api.render();
+      });
+      api.render();
+    }
+
+    /* Stop keeps the version that was there and gives the suggestion back */
+    function stop(st, api) {
+      if (st.stop) st.stop();
+      st.left++; st.stop = null;
+      var first = st.gen.first; st.gen = null;
+      if (first) { st.phase = 'prompt'; st.focus = 'prompt'; }
+      else st.phase = 'refine';
+      api.render();
+    }
+
+    /* × keeps what's in the email. A refine ends there: the version showing
+       stays, tinted until the next tap — or the selection, if nothing changed. */
+    function close(st) {
+      st.mode = 'compose'; st.focus = 'body'; st.menu = null; st.asking = false;
+      if (!refining(st)) return;
+      if (cur(st).original) st.sel = { s: st.rf.s, e: st.rf.e };
+      else { st.flash = { s: st.rf.s, e: st.rf.e }; st.caret = st.rf.e; }
+      st.kind = 'write'; st.rf = null; st.hist = []; st.cur = 0; st.fb = {};
+    }
+
+    function act(a, el, st, api) {
+      var p = a.split(':'), q;
+      switch (p[0]) {
+        case 'focus':     /* tapping the email to edit it puts the dock away */
+          if (p[1] === 'body' && P.sel.tapped()) return;
+          if (st.mode === 'dock' && st.phase === 'gen') return;
+          if (st.mode === 'dock') close(st);
+          st.focus = p[1]; st.sel = null; st.flash = null; st.caret = null;
+          return api.render();
+        case 'open':      /* reopens on the draft, unless the email was edited since */
+          st.mode = 'dock'; st.toast = null; st.menu = null; st.asking = false; st.sel = null; st.flash = null;
+          if (st.hist.length && st.body === (cur(st).original && !refining(st) ? st.pre.body : joinBody(st, cur(st).text))) { st.phase = 'refine'; st.focus = null; }
+          else {
+            if (st.hist.length) { st.hist = []; st.cur = 0; st.fb = {}; st.prompt = ''; }
+            st.phase = 'prompt'; st.focus = st.left ? 'prompt' : null;
+          }
+          return api.render();
+        case 'refine-open':   /* the original words are version 1, so undo can get back to them */
+          if (!st.sel) return;
+          var orig = st.body.slice(st.sel.s, st.sel.e);
+          st.rf = { s: st.sel.s, e: st.sel.e, orig: orig };
+          st.hist = [{ params: P.ai.selParams(), text: orig, original: true }]; st.cur = 0; st.fb = {}; st.prompt = '';
+          st.kind = 'refine'; st.sel = null; st.flash = null; st.toast = null; st.menu = null; st.asking = false;
+          st.mode = 'dock'; st.phase = 'prompt'; st.focus = st.left ? 'prompt' : null;
+          return api.render();
+        case 'go':
+          if (!st.prompt.trim()) return;
+          return gen(st, api, refining(st) ? P.ai.refineSel(P.ai.selParams(), st.prompt.trim()) : P.ai.params(st.prompt.trim()), true);
+        case 'close': close(st); return api.render();
+        case 'stop': return stop(st, api);
+        case 'menu':      /* same chip, or a tap anywhere else, closes it */
+          st.menu = p[1] && st.menu !== p[1] ? p[1] : null;
+          return api.render();
+        case 'set':       /* picking a new value regenerates straight away */
+          st.menu = null;
+          if (st.phase === 'prompt') {  /* refine prompt: rewrite now, with any typed ask */
+            q = st.prompt.trim() ? P.ai.refineSel(P.ai.selParams(), st.prompt.trim()) : P.ai.selParams();
+            q[p[1]] = p[2];
+            return gen(st, api, q, true);
+          }
+          if (cur(st).params[p[1]] === p[2]) return api.render();
+          q = copy(cur(st).params); q[p[1]] = p[2];
+          return gen(st, api, q, false);
+        case 'ask':
+          if (!st.left) return;
+          st.asking = true; st.focus = 'ask'; st.menu = null;
+          return api.render();
+        case 'cancel-ask': st.asking = false; st.focus = null; return api.render();
+        case 'refine':
+          if (!st.ask.trim()) return;
+          q = refining(st) ? P.ai.refineSel(cur(st).params, st.ask.trim()) : P.ai.refine(cur(st).params, st.ask.trim());
+          st.ask = '';
+          return gen(st, api, q, false);
+        case 'hist':
+          st.cur = Math.max(0, Math.min(st.hist.length - 1, st.cur + +p[1])); apply(st);
+          return api.render();
+        case 'fb':
+          st.fb[st.cur] = st.fb[st.cur] === p[1] ? null : p[1];
+          if (st.fb[st.cur]) return api.toast({ msg: 'Thanks for the feedback', top: 640 });
+          return api.render();
+        case 'upgrade':
+          return api.toast({ msg: 'Upgrade opens here — not part of this prototype', top: 640 });
+        default: P.sel.act(a, st, api);
+      }
+    }
+
+    function escape(st, api) {
+      if (st.mode === 'compose') { if (st.sel) { st.caret = st.sel.e; st.sel = null; api.render(); } return; }
+      if (st.phase === 'gen') return stop(st, api);
+      if (st.asking) return act('cancel-ask', null, st, api);
+      if (st.menu) return act('menu', null, st, api);
+      act('close', null, st, api);
+    }
+
+    var A = P.app({
+      init: function () {
+        return {
+          mode: 'compose', focus: 'body', subject: '', body: '', toast: null,
+          kind: 'write', sel: null, caret: null, flash: null, rf: null,
+          phase: 'prompt', prompt: '', ask: '', asking: false, menu: null,
+          left: 7, hist: [], cur: 0, fb: {}, pre: null, gen: null, stop: null
+        };
+      },
+      target: function (st, api) {
+        function field(k, extra) {
+          var t = { get: function () { return st[k]; }, set: function (v) { st[k] = v; } };
+          for (var x in extra) t[x] = extra[x];
+          return t;
+        }
+        if (st.mode === 'compose') {
+          if (st.focus === 'body') return P.sel.target(st);
+          if (st.focus === 'subject') return field('subject', { enter: function () { st.focus = 'body'; api.render(); } });
+          return null;
+        }
+        if (st.phase === 'prompt' && st.left) return field('prompt', {
+          enter: function () { act('go', null, st, api); }, enterLabel: 'Send',
+          sugs: refining(st) ? ['Make', 'Shorter', 'Clearer'] : ['Write', 'Invite', 'Thank']
+        });
+        if (st.phase === 'refine' && st.asking) return field('ask', { enter: function () { act('refine', null, st, api); }, enterLabel: 'Send', sugs: ['Make', 'Add', 'Shorter'] });
+        return null;
+      },
+      view: view, act: act, escape: escape,
+      after: function (root, st) { P.sel.place(root, st.mode === 'dock' && refining(st)); }
+    });
+
+    P.sel.watch(A, function (st) { return st.mode === 'compose'; });
+  </script>
+</body>
+
+</html>

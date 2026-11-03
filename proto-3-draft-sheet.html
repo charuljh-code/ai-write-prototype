@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <title>Dedicated bottom sheet</title>
+  <link rel="stylesheet" href="proto.css">
+</head>
+
+<body>
+
+  <aside class="panel">
+    <nav class="others">
+      <a href="proto-2-chat.html"><span class="n">1</span>Replacing content directly (like web)</a>
+      <a class="on" href="proto-3-draft-sheet.html"><span class="n">2</span>Dedicated bottom sheet</a>
+    </nav>
+  </aside>
+
+  <div class="device-wrap">
+    <div class="device" id="phone"></div>
+  </div>
+
+  <script src="proto.js"></script>
+  <script>
+    /* ══════════════════════════════════════════════════════════════════════
+       Direction 3 — Draft in sheet, with AI Refine
+
+       write:  compose → prompt (chat dock on the keyboard, "7 left")
+                       → gen (keyboard drops, sheet comes up, draft streams)
+                       → sheet (versions, Tone / Length, feedback, describe a
+                         change, Regenerate / Insert) → compose + Undo
+
+       refine: compose with a selection (Figma 5525:2355 — highlight, handles,
+               iOS edit menu, the bar collapses to "AI Refine")
+                       → the same prompt / gen / sheet, but every step works on
+                         the selected text only → Replace → compose + Undo
+
+       The middle ground between 1 and 2: Chat's prompt and controls, Smart
+       Write's rule that nothing touches the email before the user says so.
+       ══════════════════════════════════════════════════════════════════════ */
+
+    var ico = P.ico;
+
+    function copy(q) { return JSON.parse(JSON.stringify(q)); }
+    function cur(st) { return st.hist[st.cur]; }
+    function refining(st) { return st.kind === 'refine'; }
+
+    /* the email body: the shared selection rendering, plus the selection
+       being refined while the AI surface is up */
+    function bodyHtml(st) {
+      if (st.mode === 'compose') return P.sel.body(st);
+      return P.sel.bodyHtml(st.body, refining(st) && st.rf ? { s: st.rf.s, e: st.rf.e, cls: 'selhl' } : null, null);
+    }
+
+    /* ── the sheet ─────────────────────────────────────────────────── */
+
+    function sheet(inner, kbdUp) {
+      return '<div class="ds-sheet' + (kbdUp ? ' kb' : '') + '"><div class="sw-grab"></div>' +
+        '<div class="sw-head">' + ico('i-ai-write') + '<span class="sw-title">Smart Write by Titan AI</span>' +
+        '<svg class="icon sw-x" data-act="close"><use href="#i-close"/></svg></div>' +
+        inner + (kbdUp ? '' : '<div class="home-ind"></div>') + '</div>';
+    }
+
+    /* write: subject + body. refine: the selection on top, the rewrite below */
+    function card(st, o) {
+      if (!refining(st)) return P.draftCard(o);
+      return P.sel.card(st.rf.orig, o);
+    }
+    function reviewCard(st, act) {
+      var v = cur(st);
+      return card(st, { subject: v.subject, text: v.text, ver: { i: st.cur, n: st.hist.length }, key: 'v' + st.cur, act: act });
+    }
+
+    function tools(st) {
+      var q = cur(st).params, off = !st.left, rf = refining(st);
+      return '<div class="cx-row">' +
+        P.cChip('tone', q.tone || 'Tone', P.TONES, st.menu === 'tone', off) +
+        P.cChip('len', q.len || 'Length', rf ? P.sel.LENS : P.LENS, st.menu === 'len', off) +
+        '<span class="cx-push"></span>' +
+        '<span class="cx-ib' + (st.fb[st.cur] === 'up' ? ' on' : '') + '" data-act="fb:up">' + ico('i-thumb-up') + '</span>' +
+        '<span class="cx-ib' + (st.fb[st.cur] === 'down' ? ' on' : '') + '" data-act="fb:down">' + ico('i-thumb-down') + '</span></div>';
+    }
+
+    function view(st) {
+      var o = { subject: st.subject, toast: st.toast, bar: null, bodyHtml: bodyHtml(st) };
+      var over = st.confirm ? P.confirmSheet('discard', 'keep', refining(st) ? P.sel.CONFIRM : null) : '';
+      if (st.mode === 'compose') {
+        o.focus = st.focus === 'subject' ? 'subject' : null; o.kbd = !!st.focus;
+        o.bar = st.sel ? P.sel.pill('refine-open') : P.COMPOSE_ROW('open');
+        o.over = st.sel ? P.sel.MENU : '';
+        return P.shell(o);
+      }
+      switch (st.phase) {
+        case 'prompt':
+          o.kbd = !!st.left;
+          if (refining(st)) { o.fieldsBottom = 336 + 112; o.catcher = st.menu ? 'menu' : ''; }
+          /* refine adds the sheet's own Tone / Length dropdowns under the prompt */
+          o.sheet = P.dock(P.cField({
+            text: st.prompt || (refining(st) ? 'Describe how to change it' : 'Describe your email'), ph: !st.prompt,
+            focus: !!st.left, off: !st.left, count: st.left + ' left', send: st.prompt.trim() && st.left ? 'go' : '', close: 'close'
+          }) + (refining(st) && st.left ? '<div class="cx-row">' +
+            P.cChip('tone', 'Tone', P.TONES, st.menu === 'tone') + P.cChip('len', 'Length', P.sel.LENS, st.menu === 'len') +
+            '</div>' : '') + (st.left ? '' : P.cLeft(0)), !!st.left);
+          return P.shell(o);
+
+        case 'gen':       /* the sheet comes up and the text is written inside it */
+          var g = st.gen, c;
+          if (g.text != null) c = card(st, { subject: g.subject, text: g.text, pin: true, key: 'gen' });
+          else if (g.first) c = card(st, { text: null, key: 'gen' });
+          else c = card(st, { subject: cur(st).subject, text: cur(st).text, shimmer: true, key: 'gen' });
+          o.scrim = 'close'; o.over = over;
+          o.sheet = sheet('<div class="sw-status">' + ico('i-ai-write') + '<span>' +
+            (!g.first ? 'Rewriting' : refining(st) ? 'Refining your selection' : 'Writing your draft') +
+            '</span><span class="dots"></span></div>' + c +
+            '<div class="sw-foot fill"><button type="button" class="sw-btn ghost" data-act="stop">' + ico('i-stop') + ' Stop</button></div>');
+          return P.shell(o);
+
+        case 'sheet':
+          if (st.asking) {  /* keyboard back, sheet rides on it, text still readable */
+            o.kbd = true; o.scrim = 'cancel-ask';
+            o.sheet = sheet(reviewCard(st, 'cancel-ask') + P.cField({
+              text: st.ask || 'Describe your change', ph: !st.ask, focus: true,
+              send: st.ask.trim() ? 'refine' : '', close: 'cancel-ask'
+            }), true);
+            return P.shell(o);
+          }
+          o.scrim = st.menu ? 'menu' : 'close'; o.over = over;
+          o.sheet = sheet(reviewCard(st, st.menu ? 'menu' : '') + tools(st) + P.cLeft(st.left) +
+            P.cField({ text: 'Describe your change', ph: true, tap: 'ask', off: !st.left }) +
+            '<div class="sw-foot fill"><button type="button" class="sw-btn ghost' + (st.left ? '" data-act="regen"' : ' off"') + '>' +
+            ico('i-retry') + ' Regenerate</button>' +
+            '<button type="button" class="sw-btn" data-act="insert">' + (refining(st) ? 'Replace' : 'Insert') + '</button></div>');
+          return P.shell(o);
+      }
+    }
+
+    /* ── behaviour ──────────────────────────────────────────────────── */
+
+    function gen(st, api, q, first) {
+      if (!st.left) return;
+      st.left--; st.phase = 'gen'; st.asking = false; st.focus = null; st.menu = null; st.prompt = '';
+      var out = refining(st) ? { subject: '', text: P.ai.rewrite(st.rf.orig, q) } : P.ai.compose(q);
+      /* a new version never repeats the one on screen */
+      for (var n = 0; refining(st) && st.hist.length && out.text === cur(st).text && n < 4; n++) {
+        q.variant++; out.text = P.ai.rewrite(st.rf.orig, q);
+      }
+      st.gen = { first: first, text: null, subject: out.subject };
+      st.stop = P.stream(out.text, function (t) { st.gen.text = t; api.render(); }, function () {
+        st.hist.push({ params: q, subject: out.subject, text: out.text });
+        st.cur = st.hist.length - 1; st.gen = null; st.stop = null; st.phase = 'sheet';
+        api.render();
+      });
+      api.render();
+    }
+
+    /* Stop keeps the version that was there and gives the suggestion back */
+    function stop(st, api) {
+      if (st.stop) st.stop();
+      st.left++; st.stop = null; st.gen = null;
+      if (st.hist.length) st.phase = 'sheet';
+      else { st.phase = 'prompt'; st.focus = 'prompt'; }
+      api.render();
+    }
+
+    /* back to the email; a refine that never landed leaves the selection as it was */
+    function toCompose(st) {
+      st.mode = 'compose'; st.focus = 'body'; st.menu = null; st.asking = false; st.confirm = false;
+      if (refining(st) && st.rf) { st.sel = { s: st.rf.s, e: st.rf.e }; st.rf = null; }
+    }
+
+    function act(a, el, st, api) {
+      var p = a.split(':'), q;
+      switch (p[0]) {
+        case 'focus':     /* text taps in the body are handled on mouseup, below */
+          if (p[1] === 'body' && P.sel.tapped()) return;
+          if (st.mode !== 'compose' && st.phase !== 'prompt') return;
+          if (st.mode !== 'compose') toCompose(st);
+          st.focus = p[1]; st.sel = null; st.flash = null; st.caret = null;
+          return api.render();
+        case 'open':      /* a fresh session once the last draft went into the email */
+          st.hist = []; st.cur = 0; st.fb = {}; st.prompt = ''; st.undo = null;
+          st.kind = 'write'; st.sel = null; st.flash = null;
+          st.mode = 'ai'; st.phase = 'prompt'; st.focus = st.left ? 'prompt' : null; st.toast = null;
+          return api.render();
+        case 'refine-open':
+          if (!st.sel) return;
+          st.rf = { s: st.sel.s, e: st.sel.e, orig: st.body.slice(st.sel.s, st.sel.e) };
+          st.hist = []; st.cur = 0; st.fb = {}; st.prompt = ''; st.undo = null;
+          st.kind = 'refine'; st.sel = null; st.flash = null;
+          st.mode = 'ai'; st.phase = 'prompt'; st.focus = st.left ? 'prompt' : null; st.toast = null;
+          return api.render();
+        case 'go':
+          if (!st.prompt.trim()) return;
+          return gen(st, api, refining(st) ? P.ai.refineSel(P.ai.selParams(), st.prompt.trim()) : P.ai.params(st.prompt.trim()), true);
+        case 'close':     /* the prompt alone is cheap to lose; a draft asks first */
+          if (st.phase === 'prompt') { toCompose(st); return api.render(); }
+          if (st.phase === 'gen' && !st.hist.length) { stop(st, api); toCompose(st); return api.render(); }
+          st.confirm = true; st.menu = null;
+          return api.render();
+        case 'keep': st.confirm = false; return api.render();
+        case 'discard':
+          if (st.stop) st.stop();
+          st.stop = null; st.gen = null; st.hist = []; st.cur = 0; st.fb = {}; st.prompt = ''; st.ask = '';
+          toCompose(st);
+          return api.render();
+        case 'stop': return stop(st, api);
+        case 'ver':
+          st.cur = Math.max(0, Math.min(st.hist.length - 1, st.cur + +p[1]));
+          return api.render();
+        case 'menu':
+          st.menu = p[1] && st.menu !== p[1] ? p[1] : null;
+          return api.render();
+        case 'set':
+          st.menu = null;
+          if (!st.hist.length) {        /* from the refine prompt: rewrite straight away, with any typed ask */
+            q = st.prompt.trim() ? P.ai.refineSel(P.ai.selParams(), st.prompt.trim()) : P.ai.selParams();
+            q[p[1]] = p[2];
+            return gen(st, api, q, true);
+          }
+          if (cur(st).params[p[1]] === p[2]) return api.render();
+          q = copy(cur(st).params); q[p[1]] = p[2];
+          return gen(st, api, q, false);
+        case 'regen':
+          q = copy(cur(st).params); q.variant++;
+          return gen(st, api, q, false);
+        case 'ask':
+          if (!st.left) return;
+          st.asking = true; st.focus = 'ask'; st.menu = null;
+          return api.render();
+        case 'cancel-ask': st.asking = false; st.focus = null; return api.render();
+        case 'refine':
+          if (!st.ask.trim()) return;
+          q = refining(st) ? P.ai.refineSel(cur(st).params, st.ask.trim()) : P.ai.refine(cur(st).params, st.ask.trim());
+          st.ask = '';
+          return gen(st, api, q, false);
+        case 'fb':
+          st.fb[st.cur] = st.fb[st.cur] === p[1] ? null : p[1];
+          if (st.fb[st.cur]) return api.toast({ msg: 'Thanks for the feedback', top: 160 });
+          return api.render();
+        case 'upgrade':
+          return api.toast({ msg: 'Upgrade opens here — not part of this prototype', top: 160 });
+        case 'insert':    /* only now does anything reach the email */
+          var v = cur(st), s, e;
+          st.undo = { kind: st.kind, subject: st.subject, body: st.body, rf: st.rf };
+          if (refining(st)) {           /* Replace: only the selected text changes */
+            s = st.rf.s;
+            st.body = st.body.slice(0, s) + v.text + st.body.slice(st.rf.e);
+            st.rf = null;
+          } else {
+            if (!st.subject.trim()) st.subject = v.subject;
+            st.body = st.body.trim() ? st.body.replace(/\s+$/, '') + '\n\n' : '';
+            s = st.body.length; st.body += v.text;
+          }
+          e = s + v.text.length;
+          st.flash = { s: s, e: e }; st.caret = e; st.sel = null;
+          st.mode = 'compose'; st.focus = 'body';
+          return api.toast({ msg: st.undo.kind === 'refine' ? 'Selection replaced' : 'Draft inserted', act: 'undo' });
+        case 'undo':      /* back into the sheet, versions and all */
+          if (!st.undo) return;
+          st.subject = st.undo.subject; st.body = st.undo.body; st.kind = st.undo.kind; st.rf = st.undo.rf;
+          st.undo = null; st.flash = null; st.sel = null; st.caret = null;
+          st.mode = 'ai'; st.phase = 'sheet'; st.focus = null; st.toast = null;
+          return api.render();
+        default: P.sel.act(a, st, api);
+      }
+    }
+
+    function escape(st, api) {
+      if (st.mode === 'compose') { if (st.sel) { st.caret = st.sel.e; st.sel = null; api.render(); } return; }
+      if (st.confirm) return act('keep', null, st, api);
+      if (st.asking) return act('cancel-ask', null, st, api);
+      if (st.menu) return act('menu', null, st, api);
+      act('close', null, st, api);
+    }
+
+    var A = P.app({
+      init: function () {
+        return {
+          mode: 'compose', focus: 'body', subject: '', body: '', toast: null,
+          kind: 'write', sel: null, caret: null, flash: null, rf: null,
+          phase: 'prompt', prompt: '', ask: '', asking: false, menu: null, confirm: false,
+          left: 7, hist: [], cur: 0, fb: {}, gen: null, stop: null, undo: null
+        };
+      },
+      target: function (st, api) {
+        function field(k, extra) {
+          var t = { get: function () { return st[k]; }, set: function (v) { st[k] = v; } };
+          for (var x in extra) t[x] = extra[x];
+          return t;
+        }
+        if (st.confirm) return null;
+        if (st.mode === 'compose') {
+          if (st.focus === 'subject') return field('subject', { enter: function () { st.focus = 'body'; api.render(); } });
+          if (st.focus !== 'body') return null;
+          return P.sel.target(st);
+        }
+        if (st.phase === 'prompt' && st.left) return field('prompt', {
+          enter: function () { act('go', null, st, api); }, enterLabel: 'Send',
+          sugs: refining(st) ? ['Make', 'Shorter', 'Clearer'] : ['Write', 'Invite', 'Offer']
+        });
+        if (st.phase === 'sheet' && st.asking) return field('ask', { enter: function () { act('refine', null, st, api); }, enterLabel: 'Send', sugs: ['Make', 'Add', 'Shorter'] });
+        return null;
+      },
+      view: view, act: act, escape: escape,
+      after: function (root, st) { P.sel.place(root, st.mode === 'ai' && st.phase === 'prompt'); }
+    });
+
+
+    P.sel.watch(A, function (st) { return st.mode === 'compose'; });
+  </script>
+</body>
+
+</html>

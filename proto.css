@@ -1,0 +1,2185 @@
+/* ═══════════════════════════════════════════════════════════════════════
+   AI Write — mobile prototype kit (styles)
+
+   Shared by proto-1 / proto-2 / proto-3. The composer, keyboard, sheet and
+   dock styles are lifted unchanged from options.html so the full prototypes
+   look exactly like the walkthrough; the page chrome and the bits that make
+   the composer live (scrolling body, pressable keys) are added at the end.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+    /* ── Titan tokens actually used by these screens ───────────────────── */
+  :root {
+    --titan-blue: #2170f4;
+    /* --titan-color-blue-400-primary */
+    --font-primary: #333;
+    --rule: #ebebeb;
+    --stroke: #dedede;
+    --chip-stroke: #dfdfdf;
+    --chip-fill: #fcfcfc;
+
+    /* iOS */
+    --ios-kbd-bg: #d0d5dc;
+    --ios-kbd-key: #fff;
+    --ios-kbd-special: #abb4c1;
+    --ios-select: #c6d8e9;
+    --ios-handle: #146fe1;
+    --ios-menu: #f4f4f4;
+
+    /* Android (Material 3) */
+    --and-bar: #0f1227;
+    --and-on-surface: #1d1b20;
+    --and-on-surface-var: #49454f;
+    --and-kbd-strip: #f2f2f2;
+    --and-kbd-key: #f7f2fa;
+    --and-kbd-mod: #e8def8;
+    --and-kbd-enter: #d0bcff;
+    --and-kbd-shift: #e6e0e9;
+  }
+  * {
+    box-sizing: border-box;
+  }
+  body {
+    margin: 0;
+    padding: 48px 40px 72px 324px;
+    background: #e5e5e5;
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, sans-serif;
+    color: #333;
+    -webkit-font-smoothing: antialiased;
+  }
+  .page-head {
+    max-width: 1120px;
+    margin: 0 auto 40px;
+  }
+  .page-head h1 {
+    font-size: 22px;
+    font-weight: 600;
+    margin: 0 0 6px;
+  }
+  .page-head p {
+    margin: 0;
+    font-size: 14px;
+    line-height: 1.5;
+    color: #666;
+    max-width: 60ch;
+  }
+  .platform {
+    max-width: 1120px;
+    margin: 0 auto 56px;
+  }
+  .platform>h2 {
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    color: #888;
+    margin: 0 0 20px;
+  }
+  .frames {
+    display: flex;
+    gap: 88px;
+    flex-wrap: wrap;
+  }
+  figure {
+    margin: 0;
+    width: min-content;
+  }
+  figcaption {
+    margin-top: 14px;
+    font-size: 13px;
+    line-height: 1.45;
+    color: #666;
+  }
+  figcaption b {
+    display: block;
+    color: #333;
+    font-weight: 600;
+  }
+  .phone {
+    position: relative;
+    overflow: hidden;
+    background: #fff;
+  }
+  .icon {
+    display: block;
+    fill: currentColor;
+  }
+  /* ════════ iOS — 402 × 874 ════════════════════════════════════════════ */
+  .ios {
+    width: 402px;
+    height: 874px;
+    font-family: -apple-system, 'SF Pro Text', 'SF Pro', system-ui, sans-serif;
+    color: var(--font-primary);
+  }
+  /* header block: status bar + from row, col gap 8, pb 16 → 116 tall */
+  .ios-top {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 402px;
+    background: #fff;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    padding-bottom: 16px;
+  }
+  .ios-status {
+    width: 402px;
+    height: 54px;
+    padding: 21px 22px 0 33px;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+  }
+  .ios-time {
+    font-size: 17px;
+    font-weight: 600;
+    letter-spacing: -.4px;
+    line-height: 22px;
+    color: #000;
+  }
+  .ios-statusicons {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding-top: 4px;
+  }
+  .ios-headrow {
+    width: 100%;
+    padding: 0 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .ios-headleft {
+    display: flex;
+    align-items: center;
+    gap: 24px;
+  }
+  .ios-from {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .ios-from .lbl {
+    font-size: 14px;
+  }
+  .ios-from .val {
+    font-size: 16px;
+    font-weight: 600;
+  }
+  .ios-send {
+    background: var(--titan-blue);
+    color: #fff;
+    font-size: 15px;
+    font-weight: 600;
+    line-height: 20px;
+    padding: 8px 18px;
+    border-radius: 226px;
+  }
+  /* fields: absolute top 126, col gap 16 */
+  .ios-fields {
+    isolation: isolate;
+    position: absolute;
+    left: 0;
+    top: 126px;
+    width: 402px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .ios-torow {
+    width: 402px;
+    padding: 0 16px;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+  }
+  .ios-toleft {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+  .ios-tolbl {
+    font-size: 16px;
+    line-height: 1.5;
+  }
+  .ios-chip {
+    background: var(--chip-fill);
+    border: 1px solid var(--chip-stroke);
+    border-radius: 16px;
+    padding: 4px 8px;
+    font-size: 16px;
+    line-height: normal;
+  }
+  /* Figma draws these as 0-height vectors — keep them out of the flow */
+  .rule {
+    position: relative;
+    height: 0;
+    width: 100%;
+  }
+  .rule::after {
+    content: '';
+    position: absolute;
+    inset: -.5px 0 auto 0;
+    height: 1px;
+    background: var(--rule);
+  }
+  .ios-subject {
+    width: 402px;
+    padding: 0 16px;
+    font-size: 16px;
+    line-height: 1.5;
+  }
+  .ios-body {
+    position: relative;
+    width: 402px;
+    padding: 0 16px;
+    font-size: 16px;
+    line-height: 1.5;
+  }
+  /* ── bottom accessory bar: the AI Write / AI Refine entry point ────── */
+  .ios-toolbar {
+    position: absolute;
+    left: 0;
+    top: 486px;
+    width: 402px;
+    padding: 8px 0 8px 10px;
+    display: flex;
+    align-items: center;
+    overflow: hidden;
+  }
+  .ios-pills {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex: none;
+  }
+  .ios-pill {
+    flex: none;
+    min-width: 32px;
+    min-height: 32px;
+    height: 36px;
+    border: 1px solid var(--stroke);
+    border-radius: 9px;
+    padding: 6px 10px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 14px;
+    font-weight: 500;
+    line-height: 1.3;
+    color: var(--font-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    background: #fff;
+    box-sizing: border-box;
+  }
+  .ios-pill .icon {
+    width: 16px;
+    height: 16px;
+    flex: none;
+  }
+  /* ── selection: highlight bands + lollipop handles ─────────────────── */
+  .sel {
+    position: absolute;
+    height: 24px;
+    background: var(--ios-select);
+    z-index: 0;
+  }
+  .lolli {
+    position: absolute;
+    width: 18px;
+  }
+  .lolli i {
+    position: absolute;
+    width: 2px;
+    border-radius: 2px;
+    background: var(--ios-handle);
+  }
+  .lolli b {
+    position: absolute;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--ios-handle);
+  }
+  .lolli.lead {
+    left: -9px;
+    top: -18px;
+    bottom: 0;
+  }
+  .lolli.lead i {
+    left: 8px;
+    top: 9px;
+    bottom: 0;
+  }
+  .lolli.lead b {
+    left: 3px;
+    top: 0;
+  }
+  .lolli.trail {
+    right: -9px;
+    top: 0;
+    bottom: -18px;
+  }
+  .lolli.trail i {
+    right: 8px;
+    top: 0;
+    bottom: 9px;
+  }
+  .lolli.trail b {
+    right: 3px;
+    bottom: 0;
+  }
+  /* ── iOS compact (edit) menu ───────────────────────────────────────── */
+  .ios-menu {
+    position: absolute;
+    left: 35px;
+    top: 235px;
+    height: 40px;
+    display: flex;
+    align-items: stretch;
+    background: var(--ios-menu);
+    border-radius: 8px;
+    filter: drop-shadow(0 3px 15.5px rgba(0, 0, 0, .25));
+    font-size: 15px;
+    letter-spacing: -.23px;
+    color: #000;
+  }
+  .ios-menu span {
+    display: flex;
+    align-items: center;
+    padding: 0 12px;
+    line-height: 20px;
+    white-space: nowrap;
+  }
+  .ios-menu span+span {
+    border-left: .5px solid rgba(60, 60, 67, .29);
+  }
+  .ios-menu-tail {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    top: 40px;
+    width: 29px;
+    height: 8px;
+    overflow: hidden;
+  }
+  .ios-menu-tail::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: -21px;
+    transform: translateX(-50%) rotate(45deg);
+    width: 21px;
+    height: 21px;
+    border-radius: 4px;
+    background: var(--ios-menu);
+  }
+  /* ── iOS keyboard — 402 × 336 at y 538 ─────────────────────────────── */
+  .ios-kbd {
+    position: absolute;
+    left: 0;
+    top: 538px;
+    width: 402px;
+    height: 336px;
+    padding-top: 3px;
+    background: var(--ios-kbd-bg);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  .ios-acc {
+    width: 100%;
+    padding: 2px 1px;
+    display: flex;
+    align-items: center;
+    height: 43px;
+  }
+  .ios-acc .sug {
+    flex: 1 0 0;
+    min-width: 0;
+    height: 39px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 17px;
+    letter-spacing: -.43px;
+    line-height: 22px;
+    color: #000;
+  }
+  .ios-acc .sep {
+    flex: none;
+    width: 1px;
+    height: 25px;
+    margin: 0 2px;
+    background: rgba(0, 0, 0, .1);
+  }
+  .ios-spacer {
+    height: 5px;
+    flex: none;
+  }
+  .ios-layout {
+    position: relative;
+    width: 100%;
+    height: 204px;
+    flex: none;
+  }
+  .krow {
+    position: absolute;
+    display: flex;
+    gap: 6px;
+    height: 42px;
+  }
+  .key {
+    position: relative;
+    flex: 1 0 0;
+    min-width: 0;
+    height: 42px;
+    border-radius: 4.6px;
+    background: var(--ios-kbd-key);
+    box-shadow: 0 1px 0 0 rgba(0, 0, 0, .35);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 25px;
+    line-height: 28px;
+    color: #000;
+  }
+  .key.space {
+    font-size: 16px;
+    line-height: 21px;
+    letter-spacing: -.31px;
+  }
+  .key.sp {
+    background: var(--ios-kbd-special);
+    font-size: 16px;
+    line-height: 21px;
+    letter-spacing: -.31px;
+  }
+  .key.abs {
+    position: absolute;
+    flex: none;
+  }
+  .ios-emoji {
+    width: 100%;
+    height: 55px;
+    padding: 27px 24px 0 20px;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    flex: none;
+    color: #000;
+  }
+  .home-ind {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    bottom: 8px;
+    width: 139px;
+    height: 5px;
+    border-radius: 100px;
+    background: #000;
+  }
+  /* ════════ Android — 412 × 917 ════════════════════════════════════════ */
+  .and {
+    width: 412px;
+    height: 917px;
+    font-family: Roboto, 'Helvetica Neue', system-ui, sans-serif;
+    color: var(--font-primary);
+  }
+
+  /* ══════════════ refine flow — additions on top of the built screens ══ */
+
+  /* the accessory bar is the only surface this flow ever uses: it swaps its
+     contents instead of pushing a sheet, so the composer never moves */
+  .bar-scroll {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex: none;
+  }
+
+  .back-chip {
+    flex: none;
+    width: 30px;
+    height: 36px;
+    border: 1px solid var(--stroke);
+    border-radius: 9px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #666;
+    background: #fff;
+  }
+
+  .ios-pill.ai {
+    border-color: #c9d8fb;
+    background: linear-gradient(180deg, #f7faff, #f2f6fe);
+    color: #1b57c4;
+  }
+
+  .ios-pill.primary {
+    border-color: var(--titan-blue);
+    background: var(--titan-blue);
+    color: #fff;
+  }
+
+  .ios-pill.quiet {
+    color: #666;
+  }
+
+  .ios-pill[data-act] {
+    cursor: pointer;
+  }
+
+  /* selection highlight, inline so it tracks whatever the copy becomes */
+  .selhl {
+    background: var(--ios-select);
+    box-decoration-break: clone;
+    -webkit-box-decoration-break: clone;
+  }
+
+  /* text the model just produced, still pending accept */
+  .ai-new {
+    display: block;
+    background: linear-gradient(90deg, #eef3ff, #f6f0ff);
+    border-left: 2px solid #6f8ff5;
+    border-radius: 0 4px 4px 0;
+    padding: 2px 6px 2px 8px;
+    margin: 2px 0;
+  }
+
+  /* in-place "thinking": the selection breathes, nothing overlays it */
+  .shimmer {
+    position: relative;
+    overflow: hidden;
+  }
+
+  .shimmer::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(100deg, transparent 20%, rgba(255, 255, 255, .85) 50%, transparent 80%);
+    animation: sweep 1.25s linear infinite;
+  }
+
+  @keyframes sweep {
+    from {
+      transform: translateX(-100%);
+    }
+
+    to {
+      transform: translateX(100%);
+    }
+  }
+
+  /* span only — the stepper's own .dots row is a div and must not animate */
+  span.dots::after {
+    content: '';
+    animation: dots 1.2s steps(4, end) infinite;
+  }
+
+  @keyframes dots {
+    0% {
+      content: '';
+    }
+
+    25% {
+      content: '.';
+    }
+
+    50% {
+      content: '..';
+    }
+
+    75% {
+      content: '...';
+    }
+  }
+
+  /* custom-prompt state: a field in the bar, not a sheet */
+  .bar-input {
+    flex: 1 1 auto;
+    height: 36px;
+    border: 1px solid #c9d8fb;
+    border-radius: 9px;
+    padding: 0 10px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: #fbfcff;
+    color: #999;
+    font-size: 14px;
+    margin-right: 10px;
+  }
+
+  .bar-send {
+    flex: none;
+    width: 32px;
+    height: 32px;
+    min-width: 32px;
+    min-height: 32px;
+    border-radius: 50%;
+    background: var(--titan-blue);
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-left: auto;
+    padding: 6px;
+    box-sizing: border-box;
+  }
+
+
+    /* ══════════════ option 2 — Smart Write from a blank draft ══════════ */
+
+  /* a short sheet docked to the top of the keyboard. It never covers the
+     composer header or the recipient rows, and it never becomes a page. */
+  .sw {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 336px;
+    /* sits exactly on top of the keyboard */
+    background: #fff;
+    border-radius: 16px 16px 0 0;
+    box-shadow: 0 -1px 0 0 #ebebeb, 0 -12px 28px -12px rgba(0, 0, 0, .16);
+    padding: 14px 16px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .sw-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 24px;
+  }
+
+  .sw-head .icon {
+    width: 20px;
+    height: 20px;
+    flex: none;
+    color: #2170f4;
+  }
+
+  .sw-title {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--font-primary);
+    flex: 1 1 auto;
+  }
+
+  .sw-x {
+    width: 20px;
+    height: 20px;
+    color: #888;
+    flex: none;
+  }
+
+  /* prompt field — focused ring in Titan blue */
+  .sw-field {
+    border: 1.5px solid var(--titan-blue);
+    border-radius: 10px;
+    padding: 10px 12px;
+    min-height: 72px;
+    font-size: 15px;
+    line-height: 1.45;
+    color: var(--font-primary);
+    position: relative;
+    overflow: hidden;
+  }
+
+  .sw-field.idle {
+    border-color: #dfdfdf;
+  }
+
+  /* the cycling example — one line in, one line out */
+  .sw-ex {
+    color: #9aa0a6;
+    /* opacity 1 is the resting state — the keyframe only adds an entrance,
+       so the example can never be left invisible if the anim is interrupted */
+    animation: exIn .4s ease;
+  }
+
+  @keyframes exIn {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  .sw-caret {
+    display: inline-block;
+    width: 1.5px;
+    height: 17px;
+    background: var(--titan-blue);
+    vertical-align: -3px;
+    animation: blink 1.1s steps(2, end) infinite;
+  }
+
+  @keyframes blink {
+    50% {
+      opacity: 0;
+    }
+  }
+
+  .sw-foot {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .sw-style {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 32px;
+    min-height: 32px;
+    padding: 6px 8px;
+    font-size: 14px;
+    color: var(--titan-blue);
+    cursor: pointer;
+    box-sizing: border-box;
+  }
+
+  .sw-style .icon {
+    width: 18px;
+    height: 18px;
+  }
+
+  button,
+  [data-act] {
+    font: inherit;
+  }
+
+  .sw-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    min-width: 32px;
+    min-height: 32px;
+    margin-left: auto;
+    background: var(--titan-blue);
+    color: #fff;
+    font-size: 15px;
+    font-weight: 600;
+    line-height: 20px;
+    padding: 8px 18px;
+    border-radius: 226px;
+    cursor: pointer;
+    box-sizing: border-box;
+    border: 0;
+  }
+
+  .sw-btn.off {
+    background: #ececec;
+    color: #a8a8a8;
+    cursor: default;
+  }
+
+  .sw-icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    border: 1px solid var(--stroke);
+    background: #fff;
+    color: #333;
+    cursor: pointer;
+    flex: none;
+  }
+
+  .sw-icon-btn .icon {
+    width: 18px;
+    height: 18px;
+    flex: none;
+  }
+
+  /* unsized icons inside a button stretch to fill it — pin them */
+  .sw-btn .icon {
+    width: 16px;
+    height: 16px;
+    flex: none;
+  }
+
+  /* a row of buttons that starts at the left instead of pushing right */
+  .sw-foot.left .sw-btn {
+    margin-left: 0;
+  }
+
+  .sw-btn.ghost {
+    background: #fff;
+    color: var(--font-primary);
+    border: 1px solid var(--stroke);
+    font-weight: 500;
+    margin-left: 0;
+  }
+
+  /* tone / length, tucked behind one tap so the sheet stays small */
+  .sw-opts {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .sw-optrow {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .sw-optlbl {
+    font-size: 12px;
+    color: #888;
+    width: 48px;
+    flex: none;
+  }
+
+  .sw-chip {
+    min-width: 32px;
+    min-height: 32px;
+    height: 32px;
+    border: 1px solid var(--stroke);
+    border-radius: 8px;
+    padding: 6px 10px;
+    font-size: 13px;
+    color: #555;
+    cursor: pointer;
+    box-sizing: border-box;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .sw-chip.on {
+    border-color: var(--titan-blue);
+    background: #eef4ff;
+    color: #1b57c4;
+  }
+
+  /* generating — Titan's gradient bars, drawn in the draft itself */
+  .gen {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .gen i {
+    display: block;
+    height: 11px;
+    border-radius: 6px;
+    background: linear-gradient(90deg, #b9c9f7, #d9c2ef);
+    animation: pulse 1.3s ease-in-out infinite;
+  }
+
+  .gen i:nth-child(2) {
+    animation-delay: .12s;
+  }
+
+  .gen i:nth-child(3) {
+    animation-delay: .24s;
+  }
+
+  .gen i:nth-child(4) {
+    animation-delay: .36s;
+  }
+
+  @keyframes pulse {
+
+    0%,
+    100% {
+      opacity: .45;
+    }
+
+    50% {
+      opacity: 1;
+    }
+  }
+
+  .sw-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+    color: #666;
+  }
+
+  .draft-new {
+    background: linear-gradient(90deg, #eef3ff, #f6f0ff);
+    border-left: 2px solid #6f8ff5;
+    border-radius: 0 4px 4px 0;
+    padding: 2px 6px 2px 8px;
+    display: block;
+  }
+
+  /* Catch-all: an inline <svg> with no width/height attribute has no
+     intrinsic size and will balloon to fill its parent. Every icon inside
+     the sheet gets a size here; specific rules below refine it. */
+  .sw .icon,
+  .sw-status .icon {
+    width: 18px;
+    height: 18px;
+    flex: none;
+  }
+
+  /* ══════════════ option 1 — draft review inside the sheet ═══════════ */
+
+  /* Once Create is tapped the keyboard drops and the sheet grows to a
+     reading height. The draft stays in here until the user approves it —
+     nothing touches the composer before Insert. */
+  .scrim {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, .22);
+  }
+
+  .sw.full {
+    bottom: 0;
+    height: 650px;
+    padding-bottom: 40px;
+  }
+
+  /* describing a change: the keyboard comes back and the sheet rides on
+     it, shorter, with the draft still scrollable above the field */
+  .sw.full.kb {
+    bottom: 336px;
+    height: 430px;
+    padding-bottom: 12px;
+  }
+
+  .sw-field.ask {
+    flex: none;
+    min-height: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 6px 6px 12px;
+    cursor: text;
+  }
+
+  .sw-field.ask .txt {
+    flex: 1 1 auto;
+  }
+
+  .sw-field.ask .ph {
+    color: #9aa0a6;
+  }
+
+  .sw-field.ask .bar-send {
+    margin-left: 0;
+  }
+
+  .sw-field.ask .bar-send.off {
+    background: #dfe6f5;
+  }
+
+  .sw-style .val {
+    color: #666;
+  }
+
+  /* ══════════════ ways out — every open thing can be closed ══════════ */
+
+  .flip {
+    transform: rotate(180deg);
+  }
+
+  /* tap-outside target: sits over the composer, under whatever is open */
+  .catch {
+    position: absolute;
+    inset: 0;
+    cursor: pointer;
+  }
+
+  .scrim[data-act] {
+    cursor: pointer;
+  }
+
+  .scrim.top {
+    z-index: 9;
+  }
+
+  .sw-subj {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  /* version stepper — a rewrite never overwrites what the user read */
+  .sw-ver {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    font-size: 12px;
+    font-weight: 500;
+    color: #666;
+    white-space: nowrap;
+  }
+
+  .sw-ver .a {
+    width: 26px;
+    height: 26px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 6px;
+    color: #333;
+    cursor: pointer;
+  }
+
+  .sw-ver .a.off {
+    color: #ccc;
+    cursor: default;
+  }
+
+  .sw .sw-ver .icon {
+    width: 14px;
+    height: 14px;
+  }
+
+  .ask-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: none;
+  }
+
+  .ask-row .sw-field {
+    flex: 1 1 auto;
+  }
+
+  .sw-cancel {
+    flex: none;
+    font-size: 15px;
+    color: var(--titan-blue);
+    cursor: pointer;
+  }
+
+  /* iOS action sheet for leaving with an un-inserted draft */
+  .confirm {
+    position: absolute;
+    left: 8px;
+    right: 8px;
+    bottom: 30px;
+    z-index: 10;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    animation: exIn .25s ease;
+  }
+
+  .confirm .grp {
+    background: rgba(249, 249, 249, .98);
+    border-radius: 14px;
+    overflow: hidden;
+    text-align: center;
+  }
+
+  .confirm .t {
+    padding: 14px 18px 12px;
+    font-size: 13px;
+    line-height: 1.35;
+    color: #8a8a8e;
+  }
+
+  .confirm .t b {
+    display: block;
+    font-weight: 600;
+    color: #555;
+    margin-bottom: 2px;
+  }
+
+  .confirm .b {
+    padding: 16px;
+    font-size: 18px;
+    color: var(--titan-blue);
+    border-top: .5px solid rgba(60, 60, 67, .29);
+    cursor: pointer;
+  }
+
+  .confirm .b.red {
+    color: #e5382f;
+  }
+
+  .confirm .grp > .b:first-child {
+    border-top: 0;
+    font-weight: 600;
+  }
+
+  /* undo window after anything that changes the email */
+  .toast {
+    position: absolute;
+    left: 16px;
+    right: 16px;
+    top: 424px;
+    z-index: 6;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 14px;
+    border-radius: 12px;
+    background: #2b2b2e;
+    color: #fff;
+    font-size: 14px;
+    box-shadow: 0 10px 24px -10px rgba(0, 0, 0, .45);
+    animation: exIn .3s ease;
+  }
+
+  .toast .icon {
+    width: 18px;
+    height: 18px;
+    color: #7fd18b;
+  }
+
+  .toast b {
+    margin-left: auto;
+    font-weight: 600;
+    color: #8fb4ff;
+    cursor: pointer;
+  }
+
+  .cx-ib.on {
+    color: var(--titan-blue);
+    background: #eef4ff;
+  }
+
+  .sw-grab {
+    width: 36px;
+    height: 5px;
+    border-radius: 3px;
+    background: #d6d6d6;
+    margin: -6px auto -2px;
+    flex: none;
+  }
+
+  .sw-draft {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    border: 1px solid #e6eaf5;
+    border-radius: 12px;
+    padding: 12px 14px 28px;
+    font-size: 15px;
+    line-height: 1.55;
+    color: var(--font-primary);
+    background: linear-gradient(180deg, #f8faff, #fff 120px);
+    -webkit-mask-image: linear-gradient(180deg, #000 calc(100% - 36px), transparent);
+    mask-image: linear-gradient(180deg, #000 calc(100% - 36px), transparent);
+  }
+
+  .sw-subj {
+    font-weight: 600;
+    padding-bottom: 8px;
+    margin-bottom: 10px;
+    border-bottom: 1px solid #ebebeb;
+  }
+
+  .sw-subj > div > span {
+    display: block;
+    font-size: 12px;
+    font-weight: 500;
+    color: #999;
+  }
+
+  .sw-draft .gen {
+    padding-top: 4px;
+  }
+
+  .sw-foot.fill .sw-btn {
+    flex: 1 1 0;
+    justify-content: center;
+    margin-left: 0;
+    padding: 10px 12px;
+  }
+
+  .sw.full .home-ind {
+    bottom: 8px;
+  }
+
+  /* ══════════════ option 2 — chat with AI (web parity) ═══════════════ */
+
+  /* One dock holds the whole conversation with the model. With the
+     keyboard up it rides on top of it; once a draft lands the keyboard
+     drops and the dock settles at the bottom so the draft can be read. */
+  .cx {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: #fff;
+    box-shadow: 0 -1px 0 0 #ebebeb, 0 -12px 24px -16px rgba(0, 0, 0, .2);
+    padding: 10px 12px 40px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .cx.kb {
+    bottom: 336px;
+    padding-bottom: 8px;
+    box-shadow: 0 -1px 0 0 #ebebeb;
+  }
+
+  .cx-field {
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
+    border: 1px solid #c9d8fb;
+    border-radius: 12px;
+    padding: 6px 6px 6px 12px;
+    background: #fbfcff;
+    font-size: 15px;
+    line-height: 1.4;
+    min-height: 42px;
+    cursor: text;
+  }
+
+  .cx-field.focus {
+    border-color: var(--titan-blue);
+    background: #fff;
+  }
+
+  .cx-field > .icon {
+    width: 18px;
+    height: 18px;
+    flex: none;
+    color: var(--titan-blue);
+    align-self: center;
+  }
+
+  .cx-text {
+    flex: 1 1 auto;
+    min-width: 0;
+    align-self: center;
+    padding: 3px 0;
+  }
+
+  .cx-text.ph {
+    color: #9aa0a6;
+  }
+
+  .cx-count {
+    font-size: 12px;
+    color: #999;
+    white-space: nowrap;
+    align-self: center;
+  }
+
+  .cx-send {
+    flex: none;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    background: var(--titan-blue);
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+  }
+
+  .cx-send.off {
+    background: #dfe6f5;
+    cursor: default;
+  }
+
+  .cx-send .icon {
+    width: 18px;
+    height: 18px;
+  }
+
+  .cx-x {
+    flex: none;
+    width: 30px;
+    height: 30px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #888;
+    cursor: pointer;
+    align-self: center;
+  }
+
+  .cx-x .icon {
+    width: 14px;
+    height: 14px;
+  }
+
+  .cx-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .cx-chip {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    min-width: 32px;
+    min-height: 32px;
+    height: 32px;
+    padding: 6px 10px 6px 11px;
+    border: 1px solid var(--stroke);
+    border-radius: 999px;
+    font-size: 13px;
+    color: #333;
+    background: #fff;
+    cursor: pointer;
+    box-sizing: border-box;
+  }
+
+  .cx-modal {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 12px 12px 10px;
+    background: #fff;
+    border-radius: 16px 16px 0 0;
+    box-shadow: 0 -1px 0 0 #ebebeb, 0 -12px 28px -12px rgba(0, 0, 0, .16);
+  }
+
+  .cx-modal-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--font-primary);
+  }
+
+  .cx-modal-head .icon {
+    width: 18px;
+    height: 18px;
+    color: var(--titan-blue);
+    flex: none;
+  }
+
+  .cx-modal-draft {
+    border: 1px solid #edf0f3;
+    border-radius: 12px;
+    background: #fafbff;
+    padding: 12px 14px;
+    font-size: 15px;
+    line-height: 1.55;
+    color: #2b2f36;
+    min-height: 150px;
+  }
+
+  .cx-modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 2px;
+  }
+
+  .cx-action {
+    min-width: 32px;
+    min-height: 32px;
+    height: 32px;
+    border-radius: 999px;
+    padding: 6px 14px;
+    font-size: 14px;
+    font-weight: 600;
+    border: 1px solid var(--stroke);
+    cursor: pointer;
+    box-sizing: border-box;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .cx-action.ghost {
+    background: #fff;
+    color: var(--font-primary);
+    border-color: var(--stroke);
+  }
+
+  .cx-action.primary {
+    background: var(--titan-blue);
+    color: #fff;
+    border-color: var(--titan-blue);
+  }
+
+  .cx-chip.open {
+    border-color: var(--titan-blue);
+    color: #1b57c4;
+  }
+
+  .cx-chip > .icon {
+    width: 16px;
+    height: 16px;
+    color: #888;
+  }
+
+  .cx-ib {
+    width: 34px;
+    height: 34px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #555;
+    border-radius: 8px;
+    cursor: pointer;
+  }
+
+  .cx-ib.off {
+    color: #cdcdcd;
+    cursor: default;
+  }
+
+  .cx-ib .icon {
+    width: 20px;
+    height: 20px;
+  }
+
+  .cx-sep {
+    width: 1px;
+    height: 20px;
+    background: #e3e3e3;
+    margin: 0 2px;
+  }
+
+  .cx-push {
+    margin-left: auto;
+  }
+
+  .cx-meta {
+    font-size: 12px;
+    color: #999;
+    padding: 0 2px;
+  }
+
+  /* 5 or fewer left: the counter turns into the upgrade banner (web logic) */
+  .cx-banner {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: #fdf1d8;
+    border-radius: 8px;
+    padding: 7px 10px;
+    font-size: 12.5px;
+    line-height: 1.35;
+    color: #555;
+  }
+
+  .cx-banner b {
+    font-weight: 500;
+    color: var(--titan-blue);
+  }
+
+  .cx-banner .up {
+    flex: none;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: #f2a93b;
+    color: #3a2a00;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .cx-banner .up .icon {
+    width: 12px;
+    height: 12px;
+  }
+
+  .cx-spin {
+    flex: none;
+    width: 16px;
+    height: 16px;
+    border: 2px solid #c9d8fb;
+    border-top-color: var(--titan-blue);
+    border-radius: 50%;
+    animation: spin .8s linear infinite;
+    align-self: center;
+  }
+
+  @keyframes spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  .cx-menu {
+    position: absolute;
+    left: -1px;
+    bottom: calc(100% + 8px);
+    z-index: 5;
+    min-width: 176px;
+    background: #fff;
+    border-radius: 12px;
+    padding: 4px;
+    box-shadow: 0 12px 32px -8px rgba(0, 0, 0, .3), 0 0 0 1px rgba(0, 0, 0, .06);
+    cursor: default;
+  }
+
+  .cx-modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    width: 100%;
+    padding: 2px 2px 10px;
+    border-bottom: 1px solid rgba(0, 0, 0, .6);
+    color: #1b1b1b;
+  }
+
+  .cx-modal-header .cx-title {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: 1 1 auto;
+    font-size: 32px;
+    line-height: 1.15;
+    font-weight: 400;
+  }
+
+  .cx-modal-header .cx-title .icon {
+    width: 22px;
+    height: 22px;
+    color: var(--titan-blue);
+    flex: none;
+  }
+
+  .cx-modal-close {
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #333;
+    cursor: pointer;
+    flex: none;
+  }
+
+  .cx-modal-close .icon {
+    width: 20px;
+    height: 20px;
+  }
+
+  .cx-modal-top-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: none;
+  }
+
+
+  .cx-menu div {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 12px;
+    border-radius: 8px;
+    font-size: 14px;
+    color: #333;
+    cursor: pointer;
+  }
+
+  .cx-menu div:hover {
+    background: #f4f6f9;
+  }
+
+  .cx-menu div.on {
+    color: #1b57c4;
+    font-weight: 600;
+  }
+
+  .cx-menu .icon {
+    width: 16px;
+    height: 16px;
+  }
+
+/* ══════════════ prototype page — notes panel + scaled device ═════════ */
+
+body {
+  padding: 24px 32px;
+  min-height: 100vh;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 56px;
+}
+
+.panel {
+  position: sticky;
+  top: 24px;
+  width: 240px;
+  flex: none;
+  font-size: 14px;
+  line-height: 1.55;
+  color: #555;
+}
+
+.panel .eyebrow {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+  color: #9a9a9a;
+}
+
+.panel h1 {
+  margin: 6px 0 8px;
+  font-size: 22px;
+  font-weight: 600;
+  color: #222;
+}
+
+.panel h2 {
+  margin: 24px 0 8px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+  color: #9a9a9a;
+}
+
+.panel p {
+  margin: 0;
+}
+
+.panel ol {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.panel li + li {
+  margin-top: 6px;
+}
+
+.panel b {
+  color: #333;
+  font-weight: 600;
+}
+
+.panel kbd {
+  font: inherit;
+  font-size: 11px;
+  border: 1px solid #ddd;
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  padding: 1px 5px;
+  background: #fafafa;
+  color: #555;
+}
+
+.panel .note {
+  margin-top: 16px;
+  font-size: 13px;
+  color: #888;
+}
+
+.restart {
+  margin-top: 16px;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  color: #333;
+  background: #fff;
+  border: 1px solid var(--stroke);
+  border-radius: 999px;
+  padding: 8px 16px;
+  cursor: pointer;
+}
+
+.restart:hover {
+  border-color: #bbb;
+}
+
+.others {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.others a {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  color: #333;
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.others a:hover {
+  background: #f4f6f9;
+}
+
+.others a.on {
+  background: #eef4ff;
+  color: #1b57c4;
+}
+
+.others .n {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #e8e8e8;
+  color: #777;
+  font-size: 11px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.others a.on .n {
+  background: var(--titan-blue);
+  color: #fff;
+}
+
+.walk {
+  display: inline-block;
+  margin-top: 12px;
+  font-size: 13px;
+  color: var(--titan-blue);
+  text-decoration: none;
+}
+
+/* the phone is drawn at 402×874 and scaled to fit the window height */
+.device-wrap {
+  --s: 1;
+  flex: none;
+  width: calc(402px * var(--s));
+  height: calc(874px * var(--s));
+}
+
+.device {
+  width: 402px;
+  height: 874px;
+  transform: scale(var(--s));
+  transform-origin: 0 0;
+  border-radius: 22px;
+  overflow: hidden;
+  box-shadow: 0 18px 50px -18px rgba(0, 0, 0, .35), 0 0 0 1px rgba(0, 0, 0, .07);
+}
+
+@media (max-width: 860px) {
+  body {
+    flex-direction: column;
+    align-items: center;
+    padding: 16px;
+    gap: 24px;
+  }
+
+  .panel {
+    position: static;
+    width: 100%;
+    max-width: 402px;
+  }
+}
+
+button:focus-visible,
+a:focus-visible,
+[data-act]:focus-visible {
+  outline: 3px solid rgba(33, 112, 244, 0.35);
+  outline-offset: 2px;
+}
+
+/* ══════════════ live composer — scrolls, takes taps, takes typing ═════ */
+
+.phone {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.ios-fields {
+  bottom: 0;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+
+.ios-fields::-webkit-scrollbar {
+  display: none;
+}
+
+.ios-subject,
+.ios-body {
+  cursor: text;
+}
+
+.ios-body {
+  min-height: 160px;
+}
+
+.ph {
+  color: #9aa0a6;
+}
+
+.ios-send,
+.ios-headleft > .icon {
+  cursor: pointer;
+}
+
+/* compose row without a keyboard under it sits on the home indicator */
+.ios-toolbar.low {
+  top: 788px;
+}
+
+.key,
+.sug[data-sug] {
+  cursor: pointer;
+}
+
+.key:active {
+  background: #e1e4e8;
+}
+
+.key.sp:active {
+  background: #c3cad4;
+}
+
+.key.sp.on {
+  background: #fff;
+}
+
+.key.go {
+  background: var(--titan-blue);
+  color: #fff;
+}
+
+.sug[data-sug]:active {
+  background: rgba(0, 0, 0, .06);
+  border-radius: 6px;
+}
+
+/* option 1 — the cycling example can be taken as the prompt */
+.sw-ex {
+  cursor: pointer;
+}
+
+.sw-use {
+  display: block;
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--titan-blue);
+}
+
+.sw-btn.ghost .icon {
+  color: #555;
+}
+
+.sw-ver .icon {
+  width: 14px;
+  height: 14px;
+}
+
+/* options 2 / 3 — dock pieces that can be switched off */
+.cx-field.off {
+  background: #f5f5f5;
+  border-color: #e3e3e3;
+  cursor: default;
+}
+
+.cx-chip.off {
+  color: #bbb;
+  cursor: default;
+}
+
+.cx-banner b[data-act] {
+  cursor: pointer;
+}
+
+/* option 3 — the draft sheet that sits on the bottom of the screen */
+.ds-sheet {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 640px;
+  padding: 14px 16px 40px;
+  background: #fff;
+  border-radius: 16px 16px 0 0;
+  box-shadow: 0 -1px 0 0 #ebebeb, 0 -12px 28px -12px rgba(0, 0, 0, .16);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ds-sheet.kb {
+  bottom: 336px;
+  height: 430px;
+  padding-bottom: 12px;
+}
+
+.ds-sheet .sw-head .icon {
+  width: 20px;
+  height: 20px;
+  color: var(--titan-blue);
+  flex: none;
+}
+
+.ds-sheet .sw-head .sw-x {
+  color: #888;
+  cursor: pointer;
+}
+
+.ds-sheet .sw-ver {
+  margin-right: 4px;
+}
+
+.ds-sheet .sw-foot .sw-btn .icon {
+  width: 16px;
+  height: 16px;
+}
+
+.ds-sheet .cx-field {
+  flex: 1 1 auto;
+}
+
+.sw-x {
+  cursor: pointer;
+}
+
+/* the walkthrough drew these as spans; as buttons they drop native chrome */
+.sw-style,
+.sw-cancel {
+  border: 0;
+  background: none;
+  font: inherit;
+  padding-left: 0;
+}
+
+.sw-cancel {
+  padding: 6px 0;
+}
+
+.bar-send {
+  border: 0;
+}
+
+/* ══════════════ option 3 — AI Refine on a selection ══════════════════ */
+
+/* the inserted draft can be selected with the mouse, like text on a phone */
+.sel-text .para {
+  min-height: 24px;
+  margin-bottom: 24px;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.sel-text .para:last-child {
+  margin-bottom: 0;
+}
+
+.sel-text ::selection {
+  background: var(--ios-select);
+}
+
+/* lollipop handles drawn inline, so they follow the text wherever it wraps */
+.hd {
+  position: relative;
+  display: inline-block;
+  width: 0;
+  height: 24px;
+  vertical-align: top;
+}
+
+.hd i {
+  position: absolute;
+  left: -1px;
+  top: 0;
+  width: 2px;
+  height: 24px;
+  border-radius: 2px;
+  background: var(--ios-handle);
+}
+
+.hd b {
+  position: absolute;
+  left: -6px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--ios-handle);
+}
+
+.hd.lead b {
+  top: -10px;
+}
+
+.hd.trail b {
+  top: 22px;
+}
+
+/* the text AI Refine just put back, until the next tap */
+.rf-new {
+  background: linear-gradient(90deg, #e6edff, #f1e8ff);
+  border-radius: 3px;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
+.ios-menu span {
+  cursor: pointer;
+}
+
+.ios-menu.below .ios-menu-tail {
+  display: none;
+}
+
+/* the review card shows what was selected above the rewrite */
+.rf-orig {
+  font-size: 13px;
+  line-height: 1.45;
+  color: #8a8f98;
+  padding-bottom: 10px;
+  margin-bottom: 10px;
+  border-bottom: 1px solid #ebebeb;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.rf-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 26px;
+  margin-bottom: 4px;
+}
+
+.rf-orig b,
+.rf-head b {
+  display: block;
+  font-size: 12px;
+  font-weight: 500;
+  color: #999;
+}
+
+/* ══════════════ phone testing — the prototype fills the screen ══════════ */
+
+.device { touch-action: manipulation; }
+.phone { -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
+
+@media (max-width: 600px) {
+  html, body { height: 100%; overscroll-behavior: none; }
+  body {
+    padding: 0;
+    gap: 0;
+    height: 100dvh;
+    overflow: hidden;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+    background: #f2f3f5;
+  }
+  .panel {
+    position: relative;
+    top: 0;
+    flex: none;
+    width: 100%;
+    max-width: none;
+    padding: calc(6px + env(safe-area-inset-top)) 8px 6px;
+    background: #fff;
+    border-bottom: 1px solid #e4e6ea;
+  }
+  .others { flex-direction: row; gap: 6px; }
+  .others a {
+    flex: 1 1 0;
+    min-width: 0;
+    gap: 6px;
+    padding: 7px 8px;
+    font-size: 12.5px;
+    line-height: 1.25;
+  }
+  .others .n { width: 18px; height: 18px; font-size: 10px; }
+  .device-wrap { margin: auto; flex: none; }
+  .device { border-radius: 0; box-shadow: none; }
+}
+
+/* the AI Write mark: Titan's purple, a touch larger than the other icons */
+svg.icon.ai-ico {
+  color: #7c3aed !important;
+  transform: scale(1.3);
+  transform-origin: center;
+  overflow: visible;
+}
+
+/* ══════════════ floating option switcher (phones) ════════════════════ */
+.fab { display: none; }
+@media (max-width: 600px) {
+  .panel { display: none; }
+  .fab {
+    display: block;
+    position: fixed;
+    z-index: 1000;
+    right: 10px;
+    top: 38vh;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  }
+  .fab-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px 6px 6px;
+    border: 0;
+    border-radius: 999px;
+    background: rgba(20, 22, 30, .82);
+    -webkit-backdrop-filter: blur(10px);
+    backdrop-filter: blur(10px);
+    color: #fff;
+    font: 600 13px/1 inherit;
+    font-family: inherit;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, .25);
+    touch-action: none;
+    cursor: grab;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .fab-n {
+    width: 22px; height: 22px; border-radius: 50%;
+    background: var(--titan-blue, #2170f4);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 12px;
+  }
+  .fab-chev { width: 14px; height: 14px; transition: transform .2s; }
+  .fab.open .fab-chev { transform: rotate(180deg); }
+  .fab.down .fab-chev { transform: rotate(180deg); }
+  .fab.down.open .fab-chev { transform: none; }
+  .fab-menu {
+    display: none;
+    position: absolute;
+    right: 0;
+    bottom: calc(100% + 8px);
+    width: 240px;
+    max-width: calc(100vw - 24px);
+    padding: 6px;
+    background: #fff;
+    border-radius: 14px;
+    box-shadow: 0 12px 34px rgba(0, 0, 0, .22), 0 0 0 1px rgba(0, 0, 0, .06);
+  }
+  .fab.down .fab-menu { bottom: auto; top: calc(100% + 8px); }
+  .fab.open .fab-menu { display: block; }
+  .fab-menu a {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px; border-radius: 10px;
+    color: #222; text-decoration: none; font-size: 14px; font-weight: 500; line-height: 1.3;
+  }
+  .fab-menu a.on { background: #eef4ff; color: #1b57c4; }
+  .fab-menu .n {
+    flex: none; width: 22px; height: 22px; border-radius: 50%;
+    background: #e8e8e8; color: #666; font-size: 11px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .fab-menu a.on .n { background: var(--titan-blue, #2170f4); color: #fff; }
+}

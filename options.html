@@ -1,0 +1,2889 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>AI Write — two directions</title>
+  <style>
+    /* ═══════════════════════════════════════════════════════════════════════
+       AI Write — three directions (iOS prototype)
+
+       A walkthrough, not a contact sheet: one live screen at a time, with
+       Prev / Next, clickable dots and arrow keys. The screen itself is live,
+       so taps inside the phone drive the flow and the step counter follows.
+
+       Option 1 — Smart Write from blank. A short sheet docks on top of the
+         keyboard (Gmail's shape, Figma 6630:224469) in Titan's language:
+         title "Smart Write by Titan AI", cycling examples from Titan's own
+         "See examples" (6633:256878), tone/length from "Writing style"
+         (6633:256813) but inline rather than a second page.
+
+       Option 2 — Refine inline. For text already written. The 52px accessory
+         bar swaps its own contents per state; nothing new appears on screen.
+
+       Order is driven by FLOWS below; each flow carries a stable `key`, so
+       the behavioural branches never depend on the numbering.
+
+       Both render into the 402×874 composer built in index.html.
+       ═══════════════════════════════════════════════════════════════════════ */
+
+    /* ═══════════════════════════════════════════════════════════════════════
+       AI Refine — lightweight inline flow (iOS, rough draft)
+
+       Problem this answers: today Refine pushes a full-screen "Smart Write by
+       Titan AI" takeover (Figma 6633:256634 / 256668 / 256781) — the draft
+       disappears, the keyboard drops, and the user is somewhere else.
+
+       Competitor read (Figma 6630:220185):
+         · Superhuman keeps everything anchored to the selection — a compact
+           popover, then a shallow dock to accept. Composer never leaves.
+         · Outlook is closer to ours: a tall sheet with a long menu.
+
+       This draft goes one step lighter than Superhuman: there is no popover
+       and no dock either. The 52px accessory bar that already sits above the
+       keyboard (y=486, from index.html) IS the entire surface. It swaps its
+       contents per state, so the draft never moves and the keyboard never
+       drops. Frame stays 402×874 — same geometry as the built screens.
+       ═══════════════════════════════════════════════════════════════════════ */
+
+    /* ══════════════════════════════════════════════════════════════════════
+       AI Write — mobile entry points (iOS + Android)
+
+       Source: Figma "Titan AI Write" → page "AI Write - Mobile" → section
+       "Latest". Four frames, built 1:1 against the Figma node geometry:
+
+         ios / Mail          6633:259073   402 × 874   no selection
+         ios / Mail          6633:259130   402 × 874   text selected
+         android / 4         6633:259184   412 × 917   no selection
+         android / 7         6633:259248   412 × 917   text selected
+
+       Every frame, row, pill and chip keeps the width/height/offset Figma
+       reports — nothing is re-flowed to fit. The composer toolbars overflow
+       their frames exactly as they do in the design (iOS row is 893px wide
+       inside a 402px frame; Android chip row is 901px inside 412px), so the
+       4th item clips at the right edge the way the source shows it.
+
+       The entry point itself is the bottom accessory bar above the keyboard:
+         · nothing selected → "AI Write"
+         · text selected    → the bar collapses to "AI Refine"
+
+       Icons are the Titan DS "Compose tools" set, inlined from
+       design-system/icons/assets so the file stands alone.
+       ══════════════════════════════════════════════════════════════════════ */
+
+    /* ── Titan tokens actually used by these screens ───────────────────── */
+    :root {
+      --titan-blue: #2170f4;
+      /* --titan-color-blue-400-primary */
+      --font-primary: #333;
+      --rule: #ebebeb;
+      --stroke: #dedede;
+      --chip-stroke: #dfdfdf;
+      --chip-fill: #fcfcfc;
+
+      /* iOS */
+      --ios-kbd-bg: #d0d5dc;
+      --ios-kbd-key: #fff;
+      --ios-kbd-special: #abb4c1;
+      --ios-select: #c6d8e9;
+      --ios-handle: #146fe1;
+      --ios-menu: #f4f4f4;
+
+      /* Android (Material 3) */
+      --and-bar: #0f1227;
+      --and-on-surface: #1d1b20;
+      --and-on-surface-var: #49454f;
+      --and-kbd-strip: #f2f2f2;
+      --and-kbd-key: #f7f2fa;
+      --and-kbd-mod: #e8def8;
+      --and-kbd-enter: #d0bcff;
+      --and-kbd-shift: #e6e0e9;
+    }
+    * {
+      box-sizing: border-box;
+    }
+    body {
+      margin: 0;
+      padding: 48px 40px 72px 324px;
+      background: #e5e5e5;
+      font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, sans-serif;
+      color: #333;
+      -webkit-font-smoothing: antialiased;
+    }
+    .page-head {
+      max-width: 1120px;
+      margin: 0 auto 40px;
+    }
+    .page-head h1 {
+      font-size: 22px;
+      font-weight: 600;
+      margin: 0 0 6px;
+    }
+    .page-head p {
+      margin: 0;
+      font-size: 14px;
+      line-height: 1.5;
+      color: #666;
+      max-width: 60ch;
+    }
+    .platform {
+      max-width: 1120px;
+      margin: 0 auto 56px;
+    }
+    .platform>h2 {
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+      color: #888;
+      margin: 0 0 20px;
+    }
+    .frames {
+      display: flex;
+      gap: 88px;
+      flex-wrap: wrap;
+    }
+    figure {
+      margin: 0;
+      width: min-content;
+    }
+    figcaption {
+      margin-top: 14px;
+      font-size: 13px;
+      line-height: 1.45;
+      color: #666;
+    }
+    figcaption b {
+      display: block;
+      color: #333;
+      font-weight: 600;
+    }
+    .phone {
+      position: relative;
+      overflow: hidden;
+      background: #fff;
+    }
+    .icon {
+      display: block;
+      fill: currentColor;
+    }
+    /* ════════ iOS — 402 × 874 ════════════════════════════════════════════ */
+    .ios {
+      width: 402px;
+      height: 874px;
+      font-family: -apple-system, 'SF Pro Text', 'SF Pro', system-ui, sans-serif;
+      color: var(--font-primary);
+    }
+    /* header block: status bar + from row, col gap 8, pb 16 → 116 tall */
+    .ios-top {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 402px;
+      background: #fff;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      padding-bottom: 16px;
+    }
+    .ios-status {
+      width: 402px;
+      height: 54px;
+      padding: 21px 22px 0 33px;
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+    }
+    .ios-time {
+      font-size: 17px;
+      font-weight: 600;
+      letter-spacing: -.4px;
+      line-height: 22px;
+      color: #000;
+    }
+    .ios-statusicons {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      padding-top: 4px;
+    }
+    .ios-headrow {
+      width: 100%;
+      padding: 0 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .ios-headleft {
+      display: flex;
+      align-items: center;
+      gap: 24px;
+    }
+    .ios-from {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .ios-from .lbl {
+      font-size: 14px;
+    }
+    .ios-from .val {
+      font-size: 16px;
+      font-weight: 600;
+    }
+    .ios-send {
+      background: var(--titan-blue);
+      color: #fff;
+      font-size: 15px;
+      font-weight: 600;
+      line-height: 20px;
+      padding: 8px 18px;
+      border-radius: 226px;
+    }
+    /* fields: absolute top 126, col gap 16 */
+    .ios-fields {
+      isolation: isolate;
+      position: absolute;
+      left: 0;
+      top: 126px;
+      width: 402px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .ios-torow {
+      width: 402px;
+      padding: 0 16px;
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+    }
+    .ios-toleft {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+    .ios-tolbl {
+      font-size: 16px;
+      line-height: 1.5;
+    }
+    .ios-chip {
+      background: var(--chip-fill);
+      border: 1px solid var(--chip-stroke);
+      border-radius: 16px;
+      padding: 4px 8px;
+      font-size: 16px;
+      line-height: normal;
+    }
+    /* Figma draws these as 0-height vectors — keep them out of the flow */
+    .rule {
+      position: relative;
+      height: 0;
+      width: 100%;
+    }
+    .rule::after {
+      content: '';
+      position: absolute;
+      inset: -.5px 0 auto 0;
+      height: 1px;
+      background: var(--rule);
+    }
+    .ios-subject {
+      width: 402px;
+      padding: 0 16px;
+      font-size: 16px;
+      line-height: 1.5;
+    }
+    .ios-body {
+      position: relative;
+      width: 402px;
+      padding: 0 16px;
+      font-size: 16px;
+      line-height: 1.5;
+    }
+    /* ── bottom accessory bar: the AI Write / AI Refine entry point ────── */
+    .ios-toolbar {
+      position: absolute;
+      left: 0;
+      top: 486px;
+      width: 402px;
+      padding: 8px 0 8px 10px;
+      display: flex;
+      align-items: center;
+      overflow: hidden;
+    }
+    .ios-pills {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex: none;
+    }
+    .ios-pill {
+      flex: none;
+      min-width: 32px;
+      min-height: 32px;
+      height: 36px;
+      border: 1px solid var(--stroke);
+      border-radius: 9px;
+      padding: 6px 10px;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 14px;
+      font-weight: 500;
+      line-height: 1.3;
+      color: var(--font-primary);
+      white-space: nowrap;
+      overflow: hidden;
+      background: #fff;
+      box-sizing: border-box;
+    }
+    .ios-pill .icon {
+      width: 16px;
+      height: 16px;
+      flex: none;
+    }
+    /* ── selection: highlight bands + lollipop handles ─────────────────── */
+    .sel {
+      position: absolute;
+      height: 24px;
+      background: var(--ios-select);
+      z-index: 0;
+    }
+    .lolli {
+      position: absolute;
+      width: 18px;
+    }
+    .lolli i {
+      position: absolute;
+      width: 2px;
+      border-radius: 2px;
+      background: var(--ios-handle);
+    }
+    .lolli b {
+      position: absolute;
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: var(--ios-handle);
+    }
+    .lolli.lead {
+      left: -9px;
+      top: -18px;
+      bottom: 0;
+    }
+    .lolli.lead i {
+      left: 8px;
+      top: 9px;
+      bottom: 0;
+    }
+    .lolli.lead b {
+      left: 3px;
+      top: 0;
+    }
+    .lolli.trail {
+      right: -9px;
+      top: 0;
+      bottom: -18px;
+    }
+    .lolli.trail i {
+      right: 8px;
+      top: 0;
+      bottom: 9px;
+    }
+    .lolli.trail b {
+      right: 3px;
+      bottom: 0;
+    }
+    /* ── iOS compact (edit) menu ───────────────────────────────────────── */
+    .ios-menu {
+      position: absolute;
+      left: 35px;
+      top: 235px;
+      height: 40px;
+      display: flex;
+      align-items: stretch;
+      background: var(--ios-menu);
+      border-radius: 8px;
+      filter: drop-shadow(0 3px 15.5px rgba(0, 0, 0, .25));
+      font-size: 15px;
+      letter-spacing: -.23px;
+      color: #000;
+    }
+    .ios-menu span {
+      display: flex;
+      align-items: center;
+      padding: 0 12px;
+      line-height: 20px;
+      white-space: nowrap;
+    }
+    .ios-menu span+span {
+      border-left: .5px solid rgba(60, 60, 67, .29);
+    }
+    .ios-menu-tail {
+      position: absolute;
+      left: 50%;
+      transform: translateX(-50%);
+      top: 40px;
+      width: 29px;
+      height: 8px;
+      overflow: hidden;
+    }
+    .ios-menu-tail::after {
+      content: '';
+      position: absolute;
+      left: 50%;
+      top: -21px;
+      transform: translateX(-50%) rotate(45deg);
+      width: 21px;
+      height: 21px;
+      border-radius: 4px;
+      background: var(--ios-menu);
+    }
+    /* ── iOS keyboard — 402 × 336 at y 538 ─────────────────────────────── */
+    .ios-kbd {
+      position: absolute;
+      left: 0;
+      top: 538px;
+      width: 402px;
+      height: 336px;
+      padding-top: 3px;
+      background: var(--ios-kbd-bg);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    .ios-acc {
+      width: 100%;
+      padding: 2px 1px;
+      display: flex;
+      align-items: center;
+      height: 43px;
+    }
+    .ios-acc .sug {
+      flex: 1 0 0;
+      min-width: 0;
+      height: 39px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 17px;
+      letter-spacing: -.43px;
+      line-height: 22px;
+      color: #000;
+    }
+    .ios-acc .sep {
+      flex: none;
+      width: 1px;
+      height: 25px;
+      margin: 0 2px;
+      background: rgba(0, 0, 0, .1);
+    }
+    .ios-spacer {
+      height: 5px;
+      flex: none;
+    }
+    .ios-layout {
+      position: relative;
+      width: 100%;
+      height: 204px;
+      flex: none;
+    }
+    .krow {
+      position: absolute;
+      display: flex;
+      gap: 6px;
+      height: 42px;
+    }
+    .key {
+      position: relative;
+      flex: 1 0 0;
+      min-width: 0;
+      height: 42px;
+      border-radius: 4.6px;
+      background: var(--ios-kbd-key);
+      box-shadow: 0 1px 0 0 rgba(0, 0, 0, .35);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 25px;
+      line-height: 28px;
+      color: #000;
+    }
+    .key.space {
+      font-size: 16px;
+      line-height: 21px;
+      letter-spacing: -.31px;
+    }
+    .key.sp {
+      background: var(--ios-kbd-special);
+      font-size: 16px;
+      line-height: 21px;
+      letter-spacing: -.31px;
+    }
+    .key.abs {
+      position: absolute;
+      flex: none;
+    }
+    .ios-emoji {
+      width: 100%;
+      height: 55px;
+      padding: 27px 24px 0 20px;
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      flex: none;
+      color: #000;
+    }
+    .home-ind {
+      position: absolute;
+      left: 50%;
+      transform: translateX(-50%);
+      bottom: 8px;
+      width: 139px;
+      height: 5px;
+      border-radius: 100px;
+      background: #000;
+    }
+    /* ════════ Android — 412 × 917 ════════════════════════════════════════ */
+    .and {
+      width: 412px;
+      height: 917px;
+      font-family: Roboto, 'Helvetica Neue', system-ui, sans-serif;
+      color: var(--font-primary);
+    }
+  
+    /* ══════════════ refine flow — additions on top of the built screens ══ */
+
+    /* the accessory bar is the only surface this flow ever uses: it swaps its
+       contents instead of pushing a sheet, so the composer never moves */
+    .bar-scroll {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex: none;
+    }
+
+    .back-chip {
+      flex: none;
+      width: 30px;
+      height: 36px;
+      border: 1px solid var(--stroke);
+      border-radius: 9px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #666;
+      background: #fff;
+    }
+
+    .ios-pill.ai {
+      border-color: #c9d8fb;
+      background: linear-gradient(180deg, #f7faff, #f2f6fe);
+      color: #1b57c4;
+    }
+
+    .ios-pill.primary {
+      border-color: var(--titan-blue);
+      background: var(--titan-blue);
+      color: #fff;
+    }
+
+    .ios-pill.quiet {
+      color: #666;
+    }
+
+    .ios-pill[data-act] {
+      cursor: pointer;
+    }
+
+    /* selection highlight, inline so it tracks whatever the copy becomes */
+    .selhl {
+      background: var(--ios-select);
+      box-decoration-break: clone;
+      -webkit-box-decoration-break: clone;
+    }
+
+    /* text the model just produced, still pending accept */
+    .ai-new {
+      display: block;
+      background: linear-gradient(90deg, #eef3ff, #f6f0ff);
+      border-left: 2px solid #6f8ff5;
+      border-radius: 0 4px 4px 0;
+      padding: 2px 6px 2px 8px;
+      margin: 2px 0;
+    }
+
+    /* in-place "thinking": the selection breathes, nothing overlays it */
+    .shimmer {
+      position: relative;
+      overflow: hidden;
+    }
+
+    .shimmer::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(100deg, transparent 20%, rgba(255, 255, 255, .85) 50%, transparent 80%);
+      animation: sweep 1.25s linear infinite;
+    }
+
+    @keyframes sweep {
+      from {
+        transform: translateX(-100%);
+      }
+
+      to {
+        transform: translateX(100%);
+      }
+    }
+
+    /* span only — the stepper's own .dots row is a div and must not animate */
+    span.dots::after {
+      content: '';
+      animation: dots 1.2s steps(4, end) infinite;
+    }
+
+    @keyframes dots {
+      0% {
+        content: '';
+      }
+
+      25% {
+        content: '.';
+      }
+
+      50% {
+        content: '..';
+      }
+
+      75% {
+        content: '...';
+      }
+    }
+
+    /* custom-prompt state: a field in the bar, not a sheet */
+    .bar-input {
+      flex: 1 1 auto;
+      height: 36px;
+      border: 1px solid #c9d8fb;
+      border-radius: 9px;
+      padding: 0 10px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: #fbfcff;
+      color: #999;
+      font-size: 14px;
+      margin-right: 10px;
+    }
+
+    .bar-send {
+      flex: none;
+      width: 32px;
+      height: 32px;
+      min-width: 32px;
+      min-height: 32px;
+      border-radius: 50%;
+      background: var(--titan-blue);
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-left: auto;
+      padding: 6px;
+      box-sizing: border-box;
+    }
+
+    /* filmstrip chrome */
+    .strip {
+      display: flex;
+      gap: 40px;
+      flex-wrap: wrap;
+    }
+
+    .step {
+      width: min-content;
+    }
+
+    .step-n {
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+      color: #999;
+      margin-bottom: 10px;
+    }
+
+    .try {
+      border: 1px dashed #c9c9c9;
+      border-radius: 14px;
+      padding: 20px;
+      background: #fff;
+      width: min-content;
+    }
+
+    .try-hint {
+      font-size: 13px;
+      color: #666;
+      margin: 14px 0 0;
+      max-width: 402px;
+      line-height: 1.5;
+    }
+
+    .reset {
+      font: inherit;
+      font-size: 12px;
+      color: #2170f4;
+      background: none;
+      border: 0;
+      padding: 0;
+      cursor: pointer;
+      margin-top: 8px;
+    }
+
+    .note {
+      max-width: 62ch;
+      font-size: 14px;
+      line-height: 1.6;
+      color: #555;
+      margin: 0 0 28px;
+    }
+
+    .note b {
+      color: #333;
+    }
+
+      /* ══════════════ option 2 — Smart Write from a blank draft ══════════ */
+
+    /* a short sheet docked to the top of the keyboard. It never covers the
+       composer header or the recipient rows, and it never becomes a page. */
+    .sw {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 336px;
+      /* sits exactly on top of the keyboard */
+      background: #fff;
+      border-radius: 16px 16px 0 0;
+      box-shadow: 0 -1px 0 0 #ebebeb, 0 -12px 28px -12px rgba(0, 0, 0, .16);
+      padding: 14px 16px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .sw-head {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      height: 24px;
+    }
+
+    .sw-head .icon {
+      width: 20px;
+      height: 20px;
+      flex: none;
+      color: #2170f4;
+    }
+
+    .sw-title {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--font-primary);
+      flex: 1 1 auto;
+    }
+
+    .sw-x {
+      width: 20px;
+      height: 20px;
+      color: #888;
+      flex: none;
+    }
+
+    /* prompt field — focused ring in Titan blue */
+    .sw-field {
+      border: 1.5px solid var(--titan-blue);
+      border-radius: 10px;
+      padding: 10px 12px;
+      min-height: 72px;
+      font-size: 15px;
+      line-height: 1.45;
+      color: var(--font-primary);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .sw-field.idle {
+      border-color: #dfdfdf;
+    }
+
+    /* the cycling example — one line in, one line out */
+    .sw-ex {
+      color: #9aa0a6;
+      /* opacity 1 is the resting state — the keyframe only adds an entrance,
+         so the example can never be left invisible if the anim is interrupted */
+      animation: exIn .4s ease;
+    }
+
+    @keyframes exIn {
+      from {
+        opacity: 0;
+        transform: translateY(6px);
+      }
+
+      to {
+        opacity: 1;
+        transform: none;
+      }
+    }
+
+    .sw-caret {
+      display: inline-block;
+      width: 1.5px;
+      height: 17px;
+      background: var(--titan-blue);
+      vertical-align: -3px;
+      animation: blink 1.1s steps(2, end) infinite;
+    }
+
+    @keyframes blink {
+      50% {
+        opacity: 0;
+      }
+    }
+
+    .sw-foot {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .sw-style {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      min-width: 32px;
+      min-height: 32px;
+      padding: 6px 8px;
+      font-size: 14px;
+      color: var(--titan-blue);
+      cursor: pointer;
+      box-sizing: border-box;
+    }
+
+    .sw-style .icon {
+      width: 18px;
+      height: 18px;
+    }
+
+    button,
+    [data-act] {
+      font: inherit;
+    }
+
+    .sw-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      min-width: 32px;
+      min-height: 32px;
+      margin-left: auto;
+      background: var(--titan-blue);
+      color: #fff;
+      font-size: 15px;
+      font-weight: 600;
+      line-height: 20px;
+      padding: 8px 18px;
+      border-radius: 226px;
+      cursor: pointer;
+      box-sizing: border-box;
+      border: 0;
+    }
+
+    .sw-btn.off {
+      background: #ececec;
+      color: #a8a8a8;
+      cursor: default;
+    }
+
+    .sw-icon-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      border: 1px solid var(--stroke);
+      background: #fff;
+      color: #333;
+      cursor: pointer;
+      flex: none;
+    }
+
+    .sw-icon-btn .icon {
+      width: 18px;
+      height: 18px;
+      flex: none;
+    }
+
+    /* unsized icons inside a button stretch to fill it — pin them */
+    .sw-btn .icon {
+      width: 16px;
+      height: 16px;
+      flex: none;
+    }
+
+    /* a row of buttons that starts at the left instead of pushing right */
+    .sw-foot.left .sw-btn {
+      margin-left: 0;
+    }
+
+    .sw-btn.ghost {
+      background: #fff;
+      color: var(--font-primary);
+      border: 1px solid var(--stroke);
+      font-weight: 500;
+      margin-left: 0;
+    }
+
+    /* tone / length, tucked behind one tap so the sheet stays small */
+    .sw-opts {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .sw-optrow {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .sw-optlbl {
+      font-size: 12px;
+      color: #888;
+      width: 48px;
+      flex: none;
+    }
+
+    .sw-chip {
+      min-width: 32px;
+      min-height: 32px;
+      height: 32px;
+      border: 1px solid var(--stroke);
+      border-radius: 8px;
+      padding: 6px 10px;
+      font-size: 13px;
+      color: #555;
+      cursor: pointer;
+      box-sizing: border-box;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .sw-chip.on {
+      border-color: var(--titan-blue);
+      background: #eef4ff;
+      color: #1b57c4;
+    }
+
+    /* generating — Titan's gradient bars, drawn in the draft itself */
+    .gen {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .gen i {
+      display: block;
+      height: 11px;
+      border-radius: 6px;
+      background: linear-gradient(90deg, #b9c9f7, #d9c2ef);
+      animation: pulse 1.3s ease-in-out infinite;
+    }
+
+    .gen i:nth-child(2) {
+      animation-delay: .12s;
+    }
+
+    .gen i:nth-child(3) {
+      animation-delay: .24s;
+    }
+
+    .gen i:nth-child(4) {
+      animation-delay: .36s;
+    }
+
+    @keyframes pulse {
+
+      0%,
+      100% {
+        opacity: .45;
+      }
+
+      50% {
+        opacity: 1;
+      }
+    }
+
+    .sw-status {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 14px;
+      color: #666;
+    }
+
+    .draft-new {
+      background: linear-gradient(90deg, #eef3ff, #f6f0ff);
+      border-left: 2px solid #6f8ff5;
+      border-radius: 0 4px 4px 0;
+      padding: 2px 6px 2px 8px;
+      display: block;
+    }
+
+    /* ══════════════ option switcher — fixed, bottom left ══════════════ */
+    .switcher {
+      position: fixed;
+      left: 24px;
+      bottom: 24px;
+      z-index: 50;
+      background: #fff;
+      border-radius: 14px;
+      box-shadow: 0 8px 30px -8px rgba(0, 0, 0, .25), 0 0 0 1px rgba(0, 0, 0, .06);
+      padding: 8px;
+      width: 268px;
+    }
+
+    .switcher h4 {
+      margin: 4px 8px 8px;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: .07em;
+      text-transform: uppercase;
+      color: #999;
+    }
+
+    .opt {
+      display: flex;
+      gap: 10px;
+      align-items: flex-start;
+      width: 100%;
+      min-width: 32px;
+      min-height: 32px;
+      text-align: left;
+      border: 0;
+      background: none;
+      font: inherit;
+      padding: 9px 10px;
+      border-radius: 10px;
+      cursor: pointer;
+      color: #333;
+      box-sizing: border-box;
+    }
+
+    .opt:hover {
+      background: #f4f6f9;
+    }
+
+    button:focus-visible,
+    [data-act]:focus-visible,
+    .opt:focus-visible,
+    .nav button:focus-visible {
+      outline: 3px solid rgba(33, 112, 244, 0.35);
+      outline-offset: 2px;
+    }
+
+    .opt.on {
+      background: #eef4ff;
+    }
+
+    .opt .n {
+      flex: none;
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: #e8e8e8;
+      color: #777;
+      font-size: 11px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-top: 1px;
+    }
+
+    .opt.on .n {
+      background: var(--titan-blue);
+      color: #fff;
+    }
+
+    .opt b {
+      display: block;
+      font-size: 13.5px;
+      font-weight: 600;
+    }
+
+    .opt span {
+      display: block;
+      font-size: 12px;
+      color: #777;
+      line-height: 1.4;
+      margin-top: 1px;
+    }
+
+    .opt.on b {
+      color: #1b57c4;
+    }
+
+
+    /* ══════════════ stepper prototype — one screen at a time ═══════════ */
+
+    /* Catch-all: an inline <svg> with no width/height attribute has no
+       intrinsic size and will balloon to fill its parent. Every icon inside
+       the sheet gets a size here; specific rules below refine it. */
+    .sw .icon,
+    .sw-status .icon {
+      width: 18px;
+      height: 18px;
+      flex: none;
+    }
+
+    .stage {
+      max-width: 520px;
+    }
+
+    .stage-head {
+      min-height: 92px;
+      margin-bottom: 18px;
+    }
+
+    .step-count {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: .09em;
+      text-transform: uppercase;
+      color: #9a9a9a;
+    }
+
+    .step-title {
+      margin: 6px 0 4px;
+      font-size: 19px;
+      font-weight: 600;
+      color: #222;
+    }
+
+    .step-desc {
+      margin: 0;
+      font-size: 14px;
+      line-height: 1.55;
+      color: #666;
+      max-width: 46ch;
+    }
+
+    .stage-frame {
+      width: 402px;
+      border-radius: 18px;
+      overflow: hidden;
+      box-shadow: 0 18px 50px -18px rgba(0, 0, 0, .35), 0 0 0 1px rgba(0, 0, 0, .07);
+    }
+
+    .nav {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      width: 402px;
+      margin-top: 20px;
+    }
+
+    .nav button {
+      font: inherit;
+      font-size: 14px;
+      font-weight: 500;
+      color: #333;
+      background: #fff;
+      border: 1px solid var(--stroke);
+      border-radius: 999px;
+      padding: 9px 16px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .nav button:hover:not(:disabled) {
+      border-color: #bbb;
+    }
+
+    .nav button:disabled {
+      opacity: .4;
+      cursor: default;
+    }
+
+    .nav button.go {
+      margin-left: auto;
+      background: var(--titan-blue);
+      border-color: var(--titan-blue);
+      color: #fff;
+    }
+
+    .dots {
+      display: flex;
+      gap: 6px;
+    }
+
+    .dots i {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #cfcfcf;
+      cursor: pointer;
+      transition: background .15s, transform .15s;
+    }
+
+    .dots i.on {
+      background: var(--titan-blue);
+      transform: scale(1.25);
+    }
+
+    .stage-hint {
+      margin: 14px 0 0;
+      font-size: 13px;
+      line-height: 1.5;
+      color: #888;
+      width: 402px;
+    }
+
+    .stage-hint kbd {
+      font: inherit;
+      font-size: 11px;
+      border: 1px solid #ddd;
+      border-bottom-width: 2px;
+      border-radius: 4px;
+      padding: 1px 5px;
+      background: #fafafa;
+      color: #555;
+    }
+
+    /* ══════════════ option 1 — draft review inside the sheet ═══════════ */
+
+    /* Once Create is tapped the keyboard drops and the sheet grows to a
+       reading height. The draft stays in here until the user approves it —
+       nothing touches the composer before Insert. */
+    .scrim {
+      position: absolute;
+      inset: 0;
+      background: rgba(0, 0, 0, .22);
+    }
+
+    .sw.full {
+      bottom: 0;
+      height: 650px;
+      padding-bottom: 40px;
+    }
+
+    /* describing a change: the keyboard comes back and the sheet rides on
+       it, shorter, with the draft still scrollable above the field */
+    .sw.full.kb {
+      bottom: 336px;
+      height: 430px;
+      padding-bottom: 12px;
+    }
+
+    .sw-field.ask {
+      flex: none;
+      min-height: 0;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 6px 6px 12px;
+      cursor: text;
+    }
+
+    .sw-field.ask .txt {
+      flex: 1 1 auto;
+    }
+
+    .sw-field.ask .ph {
+      color: #9aa0a6;
+    }
+
+    .sw-field.ask .bar-send {
+      margin-left: 0;
+    }
+
+    .sw-field.ask .bar-send.off {
+      background: #dfe6f5;
+    }
+
+    .sw-style .val {
+      color: #666;
+    }
+
+    /* ══════════════ ways out — every open thing can be closed ══════════ */
+
+    .flip {
+      transform: rotate(180deg);
+    }
+
+    /* tap-outside target: sits over the composer, under whatever is open */
+    .catch {
+      position: absolute;
+      inset: 0;
+      cursor: pointer;
+    }
+
+    .scrim[data-act] {
+      cursor: pointer;
+    }
+
+    .scrim.top {
+      z-index: 9;
+    }
+
+    .sw-subj {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    /* version stepper — a rewrite never overwrites what the user read */
+    .sw-ver {
+      display: flex;
+      align-items: center;
+      gap: 2px;
+      font-size: 12px;
+      font-weight: 500;
+      color: #666;
+      white-space: nowrap;
+    }
+
+    .sw-ver .a {
+      width: 26px;
+      height: 26px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 6px;
+      color: #333;
+      cursor: pointer;
+    }
+
+    .sw-ver .a.off {
+      color: #ccc;
+      cursor: default;
+    }
+
+    .sw .sw-ver .icon {
+      width: 14px;
+      height: 14px;
+    }
+
+    .ask-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex: none;
+    }
+
+    .ask-row .sw-field {
+      flex: 1 1 auto;
+    }
+
+    .sw-cancel {
+      flex: none;
+      font-size: 15px;
+      color: var(--titan-blue);
+      cursor: pointer;
+    }
+
+    /* iOS action sheet for leaving with an un-inserted draft */
+    .confirm {
+      position: absolute;
+      left: 8px;
+      right: 8px;
+      bottom: 30px;
+      z-index: 10;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      animation: exIn .25s ease;
+    }
+
+    .confirm .grp {
+      background: rgba(249, 249, 249, .98);
+      border-radius: 14px;
+      overflow: hidden;
+      text-align: center;
+    }
+
+    .confirm .t {
+      padding: 14px 18px 12px;
+      font-size: 13px;
+      line-height: 1.35;
+      color: #8a8a8e;
+    }
+
+    .confirm .t b {
+      display: block;
+      font-weight: 600;
+      color: #555;
+      margin-bottom: 2px;
+    }
+
+    .confirm .b {
+      padding: 16px;
+      font-size: 18px;
+      color: var(--titan-blue);
+      border-top: .5px solid rgba(60, 60, 67, .29);
+      cursor: pointer;
+    }
+
+    .confirm .b.red {
+      color: #e5382f;
+    }
+
+    .confirm .grp > .b:first-child {
+      border-top: 0;
+      font-weight: 600;
+    }
+
+    /* undo window after anything that changes the email */
+    .toast {
+      position: absolute;
+      left: 16px;
+      right: 16px;
+      top: 424px;
+      z-index: 6;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 12px 14px;
+      border-radius: 12px;
+      background: #2b2b2e;
+      color: #fff;
+      font-size: 14px;
+      box-shadow: 0 10px 24px -10px rgba(0, 0, 0, .45);
+      animation: exIn .3s ease;
+    }
+
+    .toast .icon {
+      width: 18px;
+      height: 18px;
+      color: #7fd18b;
+    }
+
+    .toast b {
+      margin-left: auto;
+      font-weight: 600;
+      color: #8fb4ff;
+      cursor: pointer;
+    }
+
+    .cx-ib.on {
+      color: var(--titan-blue);
+      background: #eef4ff;
+    }
+
+    .sw-grab {
+      width: 36px;
+      height: 5px;
+      border-radius: 3px;
+      background: #d6d6d6;
+      margin: -6px auto -2px;
+      flex: none;
+    }
+
+    .sw-draft {
+      flex: 1 1 auto;
+      min-height: 0;
+      overflow-y: auto;
+      border: 1px solid #e6eaf5;
+      border-radius: 12px;
+      padding: 12px 14px 28px;
+      font-size: 15px;
+      line-height: 1.55;
+      color: var(--font-primary);
+      background: linear-gradient(180deg, #f8faff, #fff 120px);
+      -webkit-mask-image: linear-gradient(180deg, #000 calc(100% - 36px), transparent);
+      mask-image: linear-gradient(180deg, #000 calc(100% - 36px), transparent);
+    }
+
+    .sw-subj {
+      font-weight: 600;
+      padding-bottom: 8px;
+      margin-bottom: 10px;
+      border-bottom: 1px solid #ebebeb;
+    }
+
+    .sw-subj > div > span {
+      display: block;
+      font-size: 12px;
+      font-weight: 500;
+      color: #999;
+    }
+
+    .sw-draft .gen {
+      padding-top: 4px;
+    }
+
+    .sw-foot.fill .sw-btn {
+      flex: 1 1 0;
+      justify-content: center;
+      margin-left: 0;
+      padding: 10px 12px;
+    }
+
+    .sw.full .home-ind {
+      bottom: 8px;
+    }
+
+    /* ══════════════ option 2 — chat with AI (web parity) ═══════════════ */
+
+    /* One dock holds the whole conversation with the model. With the
+       keyboard up it rides on top of it; once a draft lands the keyboard
+       drops and the dock settles at the bottom so the draft can be read. */
+    .cx {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: #fff;
+      box-shadow: 0 -1px 0 0 #ebebeb, 0 -12px 24px -16px rgba(0, 0, 0, .2);
+      padding: 10px 12px 40px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .cx.kb {
+      bottom: 336px;
+      padding-bottom: 8px;
+      box-shadow: 0 -1px 0 0 #ebebeb;
+    }
+
+    .cx-field {
+      display: flex;
+      align-items: flex-end;
+      gap: 8px;
+      border: 1px solid #c9d8fb;
+      border-radius: 12px;
+      padding: 6px 6px 6px 12px;
+      background: #fbfcff;
+      font-size: 15px;
+      line-height: 1.4;
+      min-height: 42px;
+      cursor: text;
+    }
+
+    .cx-field.focus {
+      border-color: var(--titan-blue);
+      background: #fff;
+    }
+
+    .cx-field > .icon {
+      width: 18px;
+      height: 18px;
+      flex: none;
+      color: var(--titan-blue);
+      align-self: center;
+    }
+
+    .cx-text {
+      flex: 1 1 auto;
+      min-width: 0;
+      align-self: center;
+      padding: 3px 0;
+    }
+
+    .cx-text.ph {
+      color: #9aa0a6;
+    }
+
+    .cx-count {
+      font-size: 12px;
+      color: #999;
+      white-space: nowrap;
+      align-self: center;
+    }
+
+    .cx-send {
+      flex: none;
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      background: var(--titan-blue);
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+    }
+
+    .cx-send.off {
+      background: #dfe6f5;
+      cursor: default;
+    }
+
+    .cx-send .icon {
+      width: 18px;
+      height: 18px;
+    }
+
+    .cx-x {
+      flex: none;
+      width: 30px;
+      height: 30px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #888;
+      cursor: pointer;
+      align-self: center;
+    }
+
+    .cx-x .icon {
+      width: 14px;
+      height: 14px;
+    }
+
+    .cx-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .cx-chip {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 2px;
+      min-width: 32px;
+      min-height: 32px;
+      height: 32px;
+      padding: 6px 10px 6px 11px;
+      border: 1px solid var(--stroke);
+      border-radius: 999px;
+      font-size: 13px;
+      color: #333;
+      background: #fff;
+      cursor: pointer;
+      box-sizing: border-box;
+    }
+
+    .cx-modal {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      padding: 12px 12px 10px;
+      background: #fff;
+      border-radius: 16px 16px 0 0;
+      box-shadow: 0 -1px 0 0 #ebebeb, 0 -12px 28px -12px rgba(0, 0, 0, .16);
+    }
+
+    .cx-modal-head {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--font-primary);
+    }
+
+    .cx-modal-head .icon {
+      width: 18px;
+      height: 18px;
+      color: var(--titan-blue);
+      flex: none;
+    }
+
+    .cx-modal-draft {
+      border: 1px solid #edf0f3;
+      border-radius: 12px;
+      background: #fafbff;
+      padding: 12px 14px;
+      font-size: 15px;
+      line-height: 1.55;
+      color: #2b2f36;
+      min-height: 150px;
+    }
+
+    .cx-modal-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      margin-top: 2px;
+    }
+
+    .cx-action {
+      min-width: 32px;
+      min-height: 32px;
+      height: 32px;
+      border-radius: 999px;
+      padding: 6px 14px;
+      font-size: 14px;
+      font-weight: 600;
+      border: 1px solid var(--stroke);
+      cursor: pointer;
+      box-sizing: border-box;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .cx-action.ghost {
+      background: #fff;
+      color: var(--font-primary);
+      border-color: var(--stroke);
+    }
+
+    .cx-action.primary {
+      background: var(--titan-blue);
+      color: #fff;
+      border-color: var(--titan-blue);
+    }
+
+    .cx-chip.open {
+      border-color: var(--titan-blue);
+      color: #1b57c4;
+    }
+
+    .cx-chip > .icon {
+      width: 16px;
+      height: 16px;
+      color: #888;
+    }
+
+    .cx-ib {
+      width: 34px;
+      height: 34px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #555;
+      border-radius: 8px;
+      cursor: pointer;
+    }
+
+    .cx-ib.off {
+      color: #cdcdcd;
+      cursor: default;
+    }
+
+    .cx-ib .icon {
+      width: 20px;
+      height: 20px;
+    }
+
+    .cx-sep {
+      width: 1px;
+      height: 20px;
+      background: #e3e3e3;
+      margin: 0 2px;
+    }
+
+    .cx-push {
+      margin-left: auto;
+    }
+
+    .cx-meta {
+      font-size: 12px;
+      color: #999;
+      padding: 0 2px;
+    }
+
+    /* 5 or fewer left: the counter turns into the upgrade banner (web logic) */
+    .cx-banner {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: #fdf1d8;
+      border-radius: 8px;
+      padding: 7px 10px;
+      font-size: 12.5px;
+      line-height: 1.35;
+      color: #555;
+    }
+
+    .cx-banner b {
+      font-weight: 500;
+      color: var(--titan-blue);
+    }
+
+    .cx-banner .up {
+      flex: none;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: #f2a93b;
+      color: #3a2a00;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .cx-banner .up .icon {
+      width: 12px;
+      height: 12px;
+    }
+
+    .cx-spin {
+      flex: none;
+      width: 16px;
+      height: 16px;
+      border: 2px solid #c9d8fb;
+      border-top-color: var(--titan-blue);
+      border-radius: 50%;
+      animation: spin .8s linear infinite;
+      align-self: center;
+    }
+
+    @keyframes spin {
+      to {
+        transform: rotate(360deg);
+      }
+    }
+
+    .cx-menu {
+      position: absolute;
+      left: -1px;
+      bottom: calc(100% + 8px);
+      z-index: 5;
+      min-width: 176px;
+      background: #fff;
+      border-radius: 12px;
+      padding: 4px;
+      box-shadow: 0 12px 32px -8px rgba(0, 0, 0, .3), 0 0 0 1px rgba(0, 0, 0, .06);
+      cursor: default;
+    }
+
+    .cx-modal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      width: 100%;
+      padding: 2px 2px 10px;
+      border-bottom: 1px solid rgba(0, 0, 0, .6);
+      color: #1b1b1b;
+    }
+
+    .cx-modal-header .cx-title {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex: 1 1 auto;
+      font-size: 32px;
+      line-height: 1.15;
+      font-weight: 400;
+    }
+
+    .cx-modal-header .cx-title .icon {
+      width: 22px;
+      height: 22px;
+      color: var(--titan-blue);
+      flex: none;
+    }
+
+    .cx-modal-close {
+      width: 28px;
+      height: 28px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #333;
+      cursor: pointer;
+      flex: none;
+    }
+
+    .cx-modal-close .icon {
+      width: 20px;
+      height: 20px;
+    }
+
+    .cx-modal-top-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex: none;
+    }
+
+
+    .cx-menu div {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 12px;
+      border-radius: 8px;
+      font-size: 14px;
+      color: #333;
+      cursor: pointer;
+    }
+
+    .cx-menu div:hover {
+      background: #f4f6f9;
+    }
+
+    .cx-menu div.on {
+      color: #1b57c4;
+      font-weight: 600;
+    }
+
+    .cx-menu .icon {
+      width: 16px;
+      height: 16px;
+    }
+
+  </style>
+</head>
+
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+      <symbol id="i-attachment" viewBox="0 0 24 24"><g id="titan-artwork" fill="none"><g transform="translate(2.646694 2.000000) scale(1.286058)">
+              <g id="Attach">
+                <path id="Vector" d="M14.2692 7.65739C14.1022 7.51539 13.8862 7.44339 13.6672 7.45539C13.4472 7.46739 13.2412 7.56439 13.0912 7.72439C11.5622 9.52939 9.88923 11.2064 8.08823 12.7384C6.17523 14.2284 4.17423 14.2614 2.72823 12.8164C1.28323 11.3714 1.32823 9.33639 2.82823 7.45739C4.34023 5.56839 6.05423 3.85339 7.94423 2.34339C8.40423 1.91739 9.00423 1.67339 9.63023 1.65939C10.2572 1.64539 10.8672 1.86039 11.3462 2.26539C11.7782 2.72839 12.0132 3.34139 12.0012 3.97439C11.9882 4.60739 11.7292 5.21039 11.2802 5.65639C9.89123 7.43139 8.29323 9.03339 6.52023 10.4264C6.18723 10.6594 5.54323 10.9934 5.06423 10.5144C4.89823 10.3014 4.81523 10.0344 4.83223 9.76439C4.84823 9.49439 4.96223 9.23939 5.15323 9.04739C6.32423 7.62239 7.63523 6.31739 9.06723 5.15539C9.23323 5.01139 9.33723 4.80839 9.35723 4.58839C9.37723 4.36939 9.31323 4.15139 9.17823 3.97739C9.03323 3.81139 8.83023 3.70739 8.61123 3.68739C8.39223 3.66739 8.17423 3.73139 8.00023 3.86639C6.46223 5.13239 5.05523 6.54639 3.79723 8.09139C3.36823 8.59839 3.14123 9.24539 3.15723 9.90939C3.17323 10.5734 3.43323 11.2084 3.88623 11.6934C4.36623 12.1554 5.00323 12.4214 5.67023 12.4374C6.33623 12.4544 6.98523 12.2204 7.48823 11.7824C9.38423 10.2904 11.0872 8.56839 12.5582 6.65639C13.2592 5.89639 13.6432 4.89739 13.6302 3.86439C13.6182 2.83039 13.2102 1.84039 12.4912 1.09739C11.7352 0.405391 10.7512 0.0153904 9.72723 0.000390363C8.70223 -0.0136096 7.70723 0.34939 6.93223 1.02039C4.91923 2.61539 3.09223 4.43039 1.48423 6.43439C-0.505771 8.99139 -0.505771 11.9494 1.55123 13.9844C2.02123 14.4744 2.58523 14.8674 3.21023 15.1364C3.83423 15.4064 4.50723 15.5464 5.18723 15.5514C6.62523 15.5064 8.00623 14.9814 9.11223 14.0614C10.9872 12.4584 12.7342 10.7114 14.3372 8.83639C14.4822 8.66939 14.5572 8.45339 14.5442 8.23339C14.5312 8.01339 14.4342 7.80639 14.2702 7.65739H14.2692Z" fill="currentColor" />
+              </g>
+            </g>
+</g></symbol>
+<symbol id="i-ai-write" viewBox="0 0 24 24"><g id="titan-artwork" transform="translate(12 12) scale(0.900000) translate(-12 -12)" fill="none"><g transform="translate(2.000000 2.000000) scale(1.111111)">
+<g id="Group 22736">
+<path id="Subtract" fill-rule="evenodd" clip-rule="evenodd" d="M9 18C13.9706 18 18 13.9706 18 9C18 4.02944 13.9706 0 9 0C4.02944 0 0 4.02944 0 9C0 13.9706 4.02944 18 9 18ZM7.91652 4L8.19288 4.55271L8.74559 4.6218L8.28463 5.01312L8.46923 5.65814L7.91652 5.29003L7.36381 5.65814L7.54841 5.01312L7.08745 4.6218L7.64016 4.55271L7.91652 4ZM12.3382 9.52712L12.7992 10.4479L13.72 10.5635L12.9523 11.2162L13.259 12.2907L12.3382 11.6766L11.4174 12.2907L11.7242 11.2162L10.9564 10.5635L11.8773 10.4479L12.3382 9.52712ZM5.42931 5.10542L5.79797 5.84219L6.53474 5.93449L5.92068 6.45625L6.16608 7.31627L5.42931 6.82491L4.69255 7.31627L4.93795 6.45625L4.32389 5.93449L5.06066 5.84219L5.42931 5.10542ZM4.32389 12.5195C4.11496 12.3106 4 12.0331 4 11.738C4 11.4428 4.11496 11.1654 4.32389 10.9564L10.7276 4.55271C11.1455 4.13486 11.8728 4.13486 12.2907 4.55271L13.1673 5.42931C13.3762 5.63824 13.4912 5.9157 13.4912 6.21085C13.4912 6.506 13.3762 6.78346 13.1673 6.99238L6.76356 13.3961C6.55464 13.605 6.27717 13.72 5.98203 13.72C5.68688 13.72 5.40942 13.605 5.20049 13.3961L4.32389 12.5195ZM12.3858 6.21085L11.5092 5.33425L9.52712 7.31627L10.4037 8.19288L12.3858 6.21085Z" fill="currentColor" />
+</g>
+</g>
+</g></symbol>
+<symbol id="i-templates" viewBox="0 0 24 24"><g id="titan-artwork" transform="translate(12 12) scale(0.925000) translate(-12 -12)" fill="none"><g transform="translate(-3.000000 -3.000000) scale(1.250000)">
+<g id="Templates">
+<path id="Subtract" d="M17 4C18.1046 4 19 4.89543 19 6V18C19 19.1046 18.1046 20 17 20H7C5.89543 20 5 19.1046 5 18V6C5 4.89543 5.89543 4 7 4H17ZM8.17773 15.5781C7.81875 15.5781 7.52734 15.8695 7.52734 16.2285C7.52755 16.5873 7.81888 16.8779 8.17773 16.8779H15.8242C16.1829 16.8778 16.4734 16.5872 16.4736 16.2285C16.4736 15.8696 16.1831 15.5783 15.8242 15.5781H8.17773ZM8.17773 12.2734C7.81875 12.2734 7.52734 12.5648 7.52734 12.9238C7.52755 13.2826 7.81888 13.5732 8.17773 13.5732H15.8242C16.1829 13.5731 16.4734 13.2825 16.4736 12.9238C16.4736 12.5649 16.1831 12.2736 15.8242 12.2734H8.17773ZM8.52734 6.77344C7.97506 6.77344 7.52734 7.22115 7.52734 7.77344V9.27344C7.52734 9.82572 7.97506 10.2734 8.52734 10.2734H11.791C12.3433 10.2734 12.791 9.82572 12.791 9.27344V7.77344C12.791 7.22115 12.3433 6.77344 11.791 6.77344H8.52734Z" fill="currentColor" />
+</g>
+</g>
+</g></symbol>
+<symbol id="i-track" viewBox="0 0 24 24"><g id="titan-artwork" fill="none"><g transform="translate(2.000000 4.275000) scale(1.111111)">
+<g id="Group">
+<path id="Vector" d="M9.0001 4.5C8.515 4.5 8.0409 4.64384 7.6376 4.91332C7.2343 5.1828 6.91992 5.5658 6.73429 6.014C6.54867 6.4621 6.5001 6.9552 6.59473 7.431C6.68936 7.9067 6.92294 8.3437 7.2659 8.6867C7.6089 9.0297 8.0459 9.2632 8.5216 9.3579C8.9974 9.4525 9.4905 9.4039 9.9386 9.2183C10.3868 9.0327 10.7698 8.7183 11.0393 8.315C11.3088 7.9117 11.4526 7.4376 11.4526 6.9525C11.4496 6.303 11.1903 5.6809 10.731 5.2216C10.2717 4.7623 9.6496 4.50296 9.0001 4.5Z" fill="currentColor" />
+<path id="Vector_2" d="M9 0C3.88125 0 0 4.4325 0 6.9525C0 9.4725 3.88125 13.905 9 13.905C14.1188 13.905 18 9.4725 18 6.9525C18 4.4325 14.1188 0 9 0ZM9 10.8113C8.2368 10.8113 7.4908 10.5849 6.85619 10.1609C6.22162 9.7369 5.72704 9.1343 5.43498 8.4292C5.14292 7.7241 5.0665 6.9482 5.21539 6.1997C5.36428 5.4512 5.7318 4.76361 6.27145 4.22395C6.81111 3.6843 7.4987 3.31679 8.2472 3.16789C8.9957 3.019 9.7716 3.09542 10.4767 3.38748C11.1818 3.67954 11.7844 4.17413 12.2084 4.80869C12.6324 5.4433 12.8588 6.1893 12.8588 6.9525C12.8558 7.975 12.4483 8.9548 11.7253 9.6778C11.0023 10.4008 10.0225 10.8083 9 10.8113Z" fill="currentColor" />
+</g>
+</g>
+</g></symbol>
+<symbol id="i-reminder" viewBox="0 0 24 24"><g id="titan-artwork" fill="none"><g transform="translate(-8.140798 -7.094789) scale(1.230599)">
+              <g id="Icon/Composer/Bottom action/reminder">
+                <path id="Vector" fill-rule="evenodd" clip-rule="evenodd" d="M12.58 8.24C12.9 8.56 12.9 9.078 12.58 9.397L10.397 11.58C10.077 11.9 9.559 11.9 9.24 11.58C8.92 11.26 8.92 10.742 9.24 10.422L11.422 8.24C11.742 7.92 12.26 7.92 12.58 8.24ZM12.728 11.013C13.805 10.293 15.071 9.91 16.366 9.91C18.102 9.91 19.768 10.6 20.996 11.827C22.224 13.055 22.913 14.721 22.913 16.457C22.913 17.752 22.529 19.018 21.81 20.095C21.09 21.172 20.068 22.011 18.872 22.506C17.675 23.002 16.359 23.131 15.089 22.879C13.819 22.626 12.652 22.003 11.736 21.087C10.821 20.171 10.196 19.005 9.944 17.735C9.692 16.465 9.821 15.148 10.317 13.951C10.812 12.755 11.652 11.733 12.728 11.013ZM16.763 13.911C16.763 13.509 16.43 13.183 16.019 13.183C15.608 13.183 15.275 13.509 15.275 13.911V16.821C15.275 17.223 15.608 17.548 16.019 17.548H19.987C20.397 17.548 20.731 17.223 20.731 16.821C20.731 16.419 20.398 16.093 19.987 16.093H16.763V13.911ZM20.153 9.397C19.833 9.077 19.833 8.559 20.153 8.24C20.472 7.92 20.99 7.92 21.31 8.24L23.492 10.422C23.812 10.742 23.812 11.26 23.492 11.58C23.172 11.9 22.654 11.9 22.335 11.58L20.153 9.397Z" fill="currentColor" />
+              </g>
+            </g>
+</g></symbol>
+<symbol id="i-signature" viewBox="0 0 24 24"><g id="titan-artwork" transform="translate(12 12) scale(1.100000) translate(-12 -12)" fill="none"><g transform="translate(2.000000 5.306434) scale(1.029304)">
+              <g id="Group">
+                <path id="Vector" d="M19.3692 9.71963C19.4272 9.54103 19.4444 9.35173 19.4196 9.16563C19.3948 8.97953 19.3286 8.80133 19.2259 8.64413C19.1232 8.48693 18.9866 8.35483 18.8261 8.25733C18.6656 8.15983 18.4853 8.09963 18.2985 8.08093C17.3116 8.08093 16.8088 9.10513 16.4364 9.76613L16.0733 10.2969C16.0081 10.3713 15.8835 10.5959 15.8423 10.6387C15.7539 10.5006 15.6967 10.3449 15.6747 10.1825C15.5812 9.84243 15.5066 9.49733 15.4513 9.14903C15.4028 8.83543 15.3375 8.52463 15.2557 8.21793C15.1878 8.01343 15.0782 7.82513 14.934 7.66493C14.7898 7.50463 14.6141 7.37593 14.4178 7.28693C14.2241 7.19023 14.0105 7.13983 13.794 7.13983C13.5775 7.13983 13.3639 7.19023 13.1702 7.28693C12.5499 7.69123 11.9616 8.14253 11.4105 8.63693L11.3174 8.72073C9.96083 9.88453 9.43583 10.3757 9.06363 10.4932C8.69133 10.6108 8.46103 10.5373 8.24933 10.4426C7.97383 10.2696 7.73693 10.0416 7.55351 9.77283L7.80493 9.64253C7.99183 9.54583 8.17223 9.43693 8.34493 9.31663C10.207 7.96653 12.0691 5.48063 11.9295 3.23677C11.9057 2.69638 11.7662 2.16738 11.5205 1.68552C11.2747 1.20365 10.9284 0.780138 10.5049 0.443588C10.3426 0.304898 10.1519 0.203238 9.94633 0.145648C9.67333 0.0817783 9.39653 0.0351384 9.11773 0.00598839C8.59283 -0.0238116 8.06763 0.0578481 7.57654 0.245608C7.08548 0.433358 6.63975 0.722948 6.26865 1.09533C4.76032 2.49192 4.08065 5.18273 4.09927 7.22173C4.1369 7.68763 4.20219 8.15083 4.29479 8.60903L3.23338 9.03733C1.29677 9.79143 1.70925 9.69783 1.20647 9.86533C0.86776 9.94183 0.31523 10.3637 0.12921 10.6569C0.04444 10.8109 0 10.9839 0 11.1597C0 11.3355 0.04444 11.5084 0.12921 11.6625C0.26589 11.8852 0.45561 12.0707 0.68144 12.2023C0.90727 12.3339 1.16217 12.4075 1.42338 12.4166C1.59632 12.4411 2.02977 12.2268 2.20271 12.2023C2.20271 12.2023 4.02478 11.4394 5.3562 10.8994C6.09969 11.8882 7.07534 12.5611 7.66235 12.8209C8.24933 13.0806 9.09633 13.0265 9.60013 12.9038C10.1038 12.7812 10.9168 12.4079 12.2205 11.4301C12.3322 11.3463 12.6022 11.0856 12.9002 10.8156L13.1795 10.5642C13.384 11.2282 13.7522 11.8301 14.2502 12.3146C14.755 12.7173 15.3836 12.8449 16.0267 12.9038H16.1291C16.5139 12.9038 16.9017 12.7635 17.2511 12.6124C17.6005 12.4613 17.9978 12.0928 18.2337 11.7941C18.2776 11.7474 18.318 11.6976 18.3548 11.6451C18.8622 10.9999 19.1386 10.5074 19.3692 9.71963ZM9.41563 3.05987C9.41563 4.25163 8.35423 5.85303 7.26488 6.78413L6.8459 7.12863V6.68173C6.86355 5.27203 7.35184 3.90877 8.23323 2.80848C8.29013 2.75001 8.35253 2.69702 8.41943 2.6502C8.58123 2.52037 8.78013 2.44537 8.98733 2.43606C9.03273 2.42114 9.08163 2.42114 9.12703 2.43606C9.22483 2.50632 9.30283 2.60069 9.35343 2.70999C9.40393 2.8193 9.42543 2.93983 9.41563 3.05987Z" fill="currentColor" />
+              </g>
+            </g>
+</g></symbol>
+<symbol id="i-campaign" viewBox="0 0 24 24"><g id="titan-artwork" fill="none"><g transform="translate(1.103825 1.890710) scale(1.049180)">
+            <g id="megaphone-icon-original 8">
+              <path id="Union" d="M7.7712 2.4634C7.96265 2.4144 8.16444 2.42141 8.35225 2.48294C8.54 2.5445 8.70645 2.65828 8.83175 2.81106C11.4809 6.03543 14.7746 6.70206 14.8181 6.71047L17.3689 7.18801C18.1804 7.34094 18.8984 7.80935 19.3649 8.49075C19.8315 9.17228 20.0082 10.0118 19.8571 10.8238C19.7172 11.5649 19.3132 12.2305 18.7204 12.6968C18.1275 13.1631 17.3858 13.3985 16.6325 13.3599L15.3112 16.2398C15.2419 16.3908 15.1376 16.5232 15.0065 16.6255C14.8753 16.7278 14.7209 16.7972 14.5573 16.8277C14.3938 16.858 14.2253 16.8486 14.0661 16.8003C13.907 16.752 13.7614 16.6665 13.6423 16.5503L13.029 15.9517C12.9065 15.8324 12.8149 15.684 12.7634 15.521C12.712 15.3581 12.7015 15.185 12.7331 15.0171L13.153 12.7779C12.0792 12.7026 9.47517 12.7292 6.6794 14.3032C6.46759 14.4239 6.21987 14.4658 5.98018 14.4214C5.83017 14.393 5.68804 14.3319 5.56417 14.2427C5.40277 14.1285 5.27752 13.9701 5.20382 13.7866C5.13017 13.6033 5.11162 13.4026 5.14913 13.2085L7.0085 3.27786C7.04499 3.08367 7.13612 2.9035 7.2712 2.7593C7.4063 2.61521 7.57984 2.51241 7.7712 2.4634ZM3.65401 10.0796C4.0246 9.9477 4.43342 10.1308 4.58175 10.4947C4.73032 10.8586 4.5662 11.275 4.20967 11.44L2.21163 12.3628L2.14425 12.3833C1.76275 12.5178 1.34456 12.3174 1.20967 11.9361C1.07549 11.5549 1.27582 11.137 1.65694 11.0025L3.65401 10.0796ZM1.68135 6.88235L1.68526 6.88137L4.34053 7.36282C4.68293 7.40969 4.94684 7.68828 4.97432 8.03274C5.00181 8.37735 4.78625 8.69373 4.45577 8.79446C4.35609 8.82436 4.25052 8.83332 4.14717 8.81887L1.4919 8.33743C1.09011 8.2852 0.806859 7.91696 0.859089 7.51516C0.91133 7.11339 1.27983 6.83004 1.68135 6.88235ZM2.51046 3.76809C2.75623 3.44422 3.21764 3.381 3.54171 3.62649L5.04561 4.99368C5.35721 5.24989 5.40482 5.70978 5.15206 6.02395C5.06262 6.14274 4.93823 6.231 4.79659 6.27688C4.57162 6.34557 4.32655 6.30119 4.13936 6.15872L2.65108 4.79934C2.32753 4.55337 2.2646 4.09183 2.51046 3.76809Z" fill="currentColor" />
+            </g>
+          </g>
+</g></symbol>
+<symbol id="i-clock" viewBox="0 0 24 24"><g id="titan-artwork" transform="translate(2.000000 2.000000) scale(1.250000)">
+<g>
+<path d="M7.99219 0C12.4161 0.000101211 16 3.58406 16 8C16 12.4159 12.4161 15.9999 7.99219 16C3.57619 16 0 12.416 0 8C0 3.584 3.57619 0 7.99219 0ZM8 1.59961C4.464 1.59961 1.59961 4.464 1.59961 8C1.59961 11.536 4.464 14.4004 8 14.4004C11.536 14.4004 14.4004 11.536 14.4004 8C14.4004 4.464 11.536 1.59961 8 1.59961Z" fill="currentColor"/>
+<path d="M7.824 4H7.776C7.456 4 7.2 4.256 7.2 4.576V8.352C7.2 8.632 7.344 8.896 7.592 9.04L10.912 11.032C11.184 11.192 11.536 11.112 11.696 10.84V10.84C11.864 10.568 11.776 10.208 11.496 10.048L8.4 8.208V4.576C8.4 4.256 8.144 4 7.824 4Z" fill="currentColor"/>
+</g>
+</g></symbol>
+<symbol id="i-close" viewBox="0 0 24 24"><g id="titan-artwork" fill="none"><g transform="translate(3.000000 3.000000) scale(1.697057)">
+<g id="Group 22762">
+<path id="Combined Shape" d="M10.6066 1.41421L9.19239 0L5.3033 3.88909L1.41421 0L0 1.41421L3.88909 5.3033L0 9.19239L1.41421 10.6066L5.3033 6.71751L9.19239 10.6066L10.6066 9.19239L6.71751 5.3033L10.6066 1.41421Z" fill="currentColor" />
+</g>
+</g>
+</g></symbol>
+<symbol id="i-more-vertical" viewBox="0 0 24 24"><g id="titan-artwork" fill="none"><g transform="translate(9.750000 3.000000) scale(1.500000)">
+<g id="Vector">
+<path d="M1.5 3C0.671573 3 0 2.32843 0 1.5C0 0.671573 0.671573 0 1.5 0C2.32843 0 3 0.671573 3 1.5C3 2.32843 2.32843 3 1.5 3Z" fill="currentColor" />
+<path d="M1.5 7.5C0.671573 7.5 0 6.82843 0 6C0 5.17157 0.671573 4.5 1.5 4.5C2.32843 4.5 3 5.17157 3 6C3 6.82843 2.32843 7.5 1.5 7.5Z" fill="currentColor" />
+<path d="M1.5 12C0.671573 12 0 11.3284 0 10.5C0 9.67157 0.671573 9 1.5 9C2.32843 9 3 9.67157 3 10.5C3 11.3284 2.32843 12 1.5 12Z" fill="currentColor" />
+</g>
+</g>
+</g></symbol>
+<symbol id="i-chevron-down" viewBox="0 0 24 24"><g id="titan-artwork" fill="none"><g fill="none" transform="translate(2.000000 6.000000) scale(2.000000)"><path d="m1 1 4 4 4-4" stroke="currentColor" stroke-width="1.5" /></g>
+</g></symbol>
+      <symbol id="i-send-arrow" viewBox="0 0 24 24">
+        <path d="M3.4 20.4 21 12 3.4 3.6 3.39 10.13 15.5 12 3.39 13.87z" fill="currentColor" />
+      </symbol>
+      <symbol id="i-chev-down" viewBox="0 0 24 24">
+        <path d="m6 9 6 6 6-6" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"
+          stroke-linejoin="round" />
+      </symbol>
+      <symbol id="i-chev-left" viewBox="0 0 24 24">
+        <path d="m14 6-6 6 6 6" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"
+          stroke-linejoin="round" />
+      </symbol>
+      <symbol id="i-gear" viewBox="0 0 24 24">
+        <path
+          d="M12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7zm7.4-2.6.1-.9-.1-.9 1.9-1.5-1.9-3.3-2.3.9a7 7 0 0 0-1.6-.9L15.2 4H8.8l-.3 2.4a7 7 0 0 0-1.6.9l-2.3-.9-1.9 3.3 1.9 1.5-.1.9.1.9-1.9 1.5 1.9 3.3 2.3-.9c.5.4 1 .7 1.6.9L8.8 20h6.4l.3-2.4c.6-.2 1.1-.5 1.6-.9l2.3.9 1.9-3.3z"
+          fill="currentColor" />
+      </symbol>
+      <symbol id="i-translate" viewBox="0 0 24 24">
+        <path
+          d="M4 4h8v2H9.6c-.3 1.6-1 3-1.9 4.2.6.6 1.2 1.1 1.9 1.5l-.8 1.8c-.9-.5-1.7-1.1-2.4-1.9-.9.9-2 1.6-3.2 2.1L2.4 13c1-.4 1.9-1 2.7-1.7C4.3 10.1 3.7 8.6 3.4 7h2.1c.2 1 .6 2 1.2 2.8.7-.9 1.2-2 1.4-3.2H4V4zm10.5 5h2l3.5 11h-2.1l-.8-2.6h-3.2l-.8 2.6h-2.1L14.5 9zm1 2.6-1.1 3.6h2.2l-1.1-3.6z"
+          fill="currentColor" />
+      </symbol>
+      <symbol id="i-sticker" viewBox="0 0 24 24"><path d="M5 3h14a2 2 0 0 1 2 2v9l-7 7H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zm9 17.3 6.3-6.3H16a2 2 0 0 0-2 2v4.3z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><circle cx="9" cy="10" r="1.1" fill="currentColor"/><circle cx="14.5" cy="10" r="1.1" fill="currentColor"/></symbol>
+      <symbol id="i-dots" viewBox="0 0 24 24">
+        <circle cx="5" cy="12" r="1.8" fill="currentColor" />
+        <circle cx="12" cy="12" r="1.8" fill="currentColor" />
+        <circle cx="19" cy="12" r="1.8" fill="currentColor" />
+      </symbol>
+      <symbol id="i-mic" viewBox="0 0 24 24">
+        <path
+          d="M12 14a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v5a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-4 4.9V19h3v2H8v-2h3v-3.1A5 5 0 0 1 7 11h2a3 3 0 0 0 6 0h2z"
+          fill="currentColor" />
+      </symbol>
+      <symbol id="i-emoji" viewBox="0 0 24 24">
+        <path
+          d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm0 2a8 8 0 1 1 0 16 8 8 0 0 1 0-16zM8.5 9a1.3 1.3 0 1 1 0 2.6 1.3 1.3 0 0 1 0-2.6zm7 0a1.3 1.3 0 1 1 0 2.6 1.3 1.3 0 0 1 0-2.6zM12 17.2c2 0 3.7-1.2 4.4-3H7.6c.7 1.8 2.4 3 4.4 3z"
+          fill="currentColor" />
+      </symbol>
+      <symbol id="i-globe" viewBox="0 0 24 24">
+        <path
+          d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm6.9 6h-2.9a15.6 15.6 0 0 0-1.4-3.6A8 8 0 0 1 18.9 8zM12 4.1c.7 1 1.3 2.3 1.7 3.9h-3.4c.4-1.6 1-2.9 1.7-3.9zM4.3 14a8 8 0 0 1 0-4h3.3a16.6 16.6 0 0 0 0 4H4.3zm.8 2h2.9c.3 1.3.8 2.5 1.4 3.6A8 8 0 0 1 5.1 16zm2.9-8H5.1a8 8 0 0 1 4.3-3.6C8.8 5.5 8.3 6.7 8 8zM12 19.9c-.7-1-1.3-2.3-1.7-3.9h3.4c-.4 1.6-1 2.9-1.7 3.9zm2.1-5.9H9.9a14.8 14.8 0 0 1 0-4h4.2a14.8 14.8 0 0 1 0 4zm.5 5.6c.6-1.1 1.1-2.3 1.4-3.6h2.9a8 8 0 0 1-4.3 3.6zm1.8-5.6a16.6 16.6 0 0 0 0-4h3.3a8 8 0 0 1 0 4h-3.3z"
+          fill="currentColor" />
+      </symbol>
+      <symbol id="i-kbd-hide" viewBox="0 0 24 24">
+        <path
+          d="M20 3H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2zm-9 3h2v2h-2V6zm0 3h2v2h-2V9zM8 6h2v2H8V6zm0 3h2v2H8V9zM7 11H5V9h2v2zm0-3H5V6h2v2zm9 7H8v-2h8v2zm0-4h-2V9h2v2zm0-3h-2V6h2v2zm3 3h-2V9h2v2zm0-3h-2V6h2v2zM12 23l4-4H8l4 4z"
+          fill="currentColor" />
+      </symbol>
+      <symbol id="i-shift" viewBox="0 0 24 24">
+        <path d="M12 4 4 13h4v5h8v-5h4L12 4z" fill="currentColor" />
+      </symbol>
+      <symbol id="i-del" viewBox="0 0 24 24">
+        <path
+          d="M9 4h11a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H9l-7-8 7-8zm3.6 4L11.2 9.4 13.8 12l-2.6 2.6L12.6 16l2.6-2.6 2.6 2.6 1.4-1.4-2.6-2.6 2.6-2.6L17.8 8l-2.6 2.6L12.6 8z"
+          fill="currentColor" />
+      </symbol>
+      <symbol id="i-enter" viewBox="0 0 24 24">
+        <path d="M19 7v4H7.8l3.6-3.6L10 6l-6 6 6 6 1.4-1.4L7.8 13H21V7h-2z" fill="currentColor" />
+      </symbol>
+      <symbol id="i-wifi" viewBox="0 0 20 14">
+        <path
+          d="M10 12.5 12.6 9a4.3 4.3 0 0 0-5.2 0L10 12.5zM10 2c2.7 0 5.2 1 7.1 2.6l-1.4 1.8A9 9 0 0 0 10 4.4a9 9 0 0 0-5.7 2L2.9 4.6A11.2 11.2 0 0 1 10 2zm0 3.6c1.8 0 3.5.6 4.8 1.7l-1.4 1.8A5.5 5.5 0 0 0 10 8a5.5 5.5 0 0 0-3.4 1.1L5.2 7.3A7.7 7.7 0 0 1 10 5.6z"
+          fill="currentColor" />
+      </symbol>
+      <symbol id="i-cellular" viewBox="0 0 18 12">
+        <rect x="0" y="8" width="3" height="4" rx=".7" fill="currentColor" />
+        <rect x="5" y="5.5" width="3" height="6.5" rx=".7" fill="currentColor" />
+        <rect x="10" y="3" width="3" height="9" rx=".7" fill="currentColor" />
+        <rect x="15" y="0" width="3" height="12" rx=".7" fill="currentColor" />
+      </symbol>
+      <symbol id="i-battery" viewBox="0 0 27 13">
+        <rect x=".5" y=".5" width="23" height="12" rx="3.8" stroke="currentColor" stroke-opacity=".35" fill="none" />
+        <rect x="2" y="2" width="20" height="9" rx="2.5" fill="currentColor" />
+        <path d="M25 4.6v3.8a2 2 0 0 0 0-3.8z" fill="currentColor" fill-opacity=".4" />
+      </symbol>
+      <symbol id="i-and-signal" viewBox="0 0 14 12">
+        <path d="M14 0v12H0L14 0z" fill="currentColor" />
+      </symbol>
+      <symbol id="i-and-battery" viewBox="0 0 9 13">
+        <path d="M3 0h3v1.5h1A1 1 0 0 1 8 2.5v9a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1v-9a1 1 0 0 1 1-1h1V0z"
+          fill="currentColor" />
+      </symbol>
+          <symbol id="i-shorten" viewBox="0 0 24 24"><path d="M4 6h16M4 18h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M10 12H4m16 0h-6m-1.5-2.5L15 12l-2.5 2.5m-1-5L9 12l2.5 2.5" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="i-lengthen" viewBox="0 0 24 24"><path d="M4 6h16M4 18h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M4 12h6m4 0h6m-4.5-2.5L12 12l2.5 2.5m-5-5L12 12l-2.5 2.5" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="i-grammar" viewBox="0 0 24 24"><path d="M3 18 8 6l5 12m-8.4-3.6h6.8" stroke="currentColor" stroke-width="1.9" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="m14.5 14.5 2.6 2.6L22 11.4" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="i-tone" viewBox="0 0 24 24"><path d="M12 3a9 9 0 0 1 0 18 9 9 0 0 1 0-18z" stroke="currentColor" stroke-width="1.8" fill="none"/><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor"/></symbol>
+      <symbol id="i-stop" viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="2" fill="currentColor"/></symbol>
+      <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="i-retry" viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.6-5.9" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/><path d="M20 4v5h-5" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="i-send-up" viewBox="0 0 24 24"><path d="M12 19V6m-5.5 5.5L12 6l5.5 5.5" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="i-undo" viewBox="0 0 24 24"><path d="M9 14 4 9l5-5M4 9h10.5a5.5 5.5 0 0 1 0 11H11" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="i-redo" viewBox="0 0 24 24"><path d="m15 14 5-5-5-5M20 9H9.5a5.5 5.5 0 0 0 0 11H13" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="i-thumb-up" viewBox="0 0 24 24"><path d="M7 10v11M15 5.9 14 10h5.8a2 2 0 0 1 1.9 2.6l-2.3 8a2 2 0 0 1-1.9 1.4H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.8a2 2 0 0 0 1.8-1.1L12 2a3.1 3.1 0 0 1 3 3.9z" stroke="currentColor" stroke-width="1.7" fill="none" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="i-thumb-down" viewBox="0 0 24 24"><path d="M17 14V3M9 18.1 10 14H4.2a2 2 0 0 1-1.9-2.6l2.3-8A2 2 0 0 1 6.5 2H20a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-2.8a2 2 0 0 0-1.8 1.1L12 22a3.1 3.1 0 0 1-3-3.9z" stroke="currentColor" stroke-width="1.7" fill="none" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    </defs>
+  </svg>
+
+  <div class="page-head">
+    <h1>AI Write — two directions</h1>
+    <p>iOS prototype on the composer from <a href="index.html">index.html</a>.
+      Step through with Prev / Next, or tap inside the screen. Switch direction at bottom left.<br>
+      Full prototypes, with real typing and live drafts:
+      <a href="proto-2-chat.html">1 · Replacing content directly (like web)</a> ·
+      <a href="proto-3-draft-sheet.html">2 · Dedicated bottom sheet</a></p>
+  </div>
+
+  <div id="view"></div>
+
+  <nav class="switcher">
+    <h4>Direction</h4>
+    <button class="opt on" data-opt="2"><span class="n">1</span>
+      <span><b>Replacing content directly (like web)</b><span>Web flow, made for mobile. Prompt, then keep refining in one dock.</span></span></button>
+    <button class="opt" data-opt="3"><span class="n">2</span>
+      <span><b>Dedicated bottom sheet</b><span>Prompt from chat, draft reviewed in the bottom sheet.</span></span></button>
+  </nav>
+
+  <script>
+    var KBD = "<div class=\"ios-kbd\"> <div class=\"ios-acc\"> <div class=\"sug\">&ldquo;The&rdquo;</div><div class=\"sep\"></div> <div class=\"sug\">the</div><div class=\"sep\"></div> <div class=\"sug\">to</div> </div> <div class=\"ios-spacer\"></div> <div class=\"ios-layout\"> <div class=\"krow\" style=\"left:3.06px;right:3.06px;top:0\"><div class=\"key\">q</div><div class=\"key\">w</div><div class=\"key\">e</div><div class=\"key\">r</div><div class=\"key\">t</div><div class=\"key\">y</div><div class=\"key\">u</div><div class=\"key\">i</div><div class=\"key\">o</div><div class=\"key\">p</div></div> <div class=\"krow\" style=\"left:23.52px;right:23.52px;top:54px\"><div class=\"key\">a</div><div class=\"key\">s</div><div class=\"key\">d</div><div class=\"key\">f</div><div class=\"key\">g</div><div class=\"key\">h</div><div class=\"key\">j</div><div class=\"key\">k</div><div class=\"key\">l</div></div> <div class=\"krow\" style=\"left:63.44px;right:63.44px;top:108px\"><div class=\"key\">z</div><div class=\"key\">x</div><div class=\"key\">c</div><div class=\"key\">v</div><div class=\"key\">b</div><div class=\"key\">n</div><div class=\"key\">m</div></div> <div class=\"key sp abs\" style=\"left:3.06px;width:45.02px;top:108px\"><svg class=\"icon\" width=\"20\" height=\"20\"><use href=\"#i-shift\"/></svg></div> <div class=\"key sp abs\" style=\"left:353.92px;width:45.02px;top:108px\"><svg class=\"icon\" width=\"22\" height=\"22\"><use href=\"#i-del\"/></svg></div> <div class=\"key sp abs\" style=\"left:3.06px;width:94.1px;top:162px\">ABC</div> <div class=\"key abs space\" style=\"left:103.31px;width:195.38px;top:162px\">space</div> <div class=\"key sp abs\" style=\"left:304.84px;width:94.1px;top:162px\">return</div> </div> <div class=\"ios-emoji\"> <svg class=\"icon\" width=\"24\" height=\"24\"><use href=\"#i-emoji\"/></svg> <svg class=\"icon\" width=\"20\" height=\"20\"><use href=\"#i-mic\"/></svg> </div> <div class=\"home-ind\"></div> </div>";
+    /* ══════════════════════════════════════════════════════════════════════
+       Two candidate flows for AI Write / Refine on iOS, in one page.
+       Both render into the SAME 402×874 composer built in index.html.
+       Switch between them from the widget at bottom left.
+       ══════════════════════════════════════════════════════════════════════ */
+
+    function ico(id, cls) { return '<svg class="icon ' + (cls || '') + '"><use href="#' + id + '"/></svg>'; }
+    function pill(id, label, o) {
+      o = o || {};
+      return '<button type="button" class="ios-pill ' + (o.cls || '') + '"' + (o.act ? ' data-act="' + o.act + '"' : '') + '>' +
+        (id ? ico(id) : '') + label + (o.trail || '') + '</button>';
+    }
+
+    /* ── the composer shell both options share ────────────────────────── */
+    function shell(parts) {
+      var subjectBlock = parts.subject === '' ? '' : '<div class="ios-subject">' + (parts.subject || 'Lets discuss the User flow at 6 pm today') + '</div>';
+      return '<div class="phone ios">' +
+        '<div class="ios-top">' +
+        '<div class="ios-status"><span class="ios-time">9:41</span><span class="ios-statusicons">' +
+        '<svg class="icon" width="18" height="12"><use href="#i-cellular"/></svg>' +
+        '<svg class="icon" width="17" height="12"><use href="#i-wifi"/></svg>' +
+        '<svg class="icon" width="27" height="13"><use href="#i-battery"/></svg></span></div>' +
+        '<div class="ios-headrow"><div class="ios-headleft">' +
+        '<svg class="icon" width="24" height="24" style="color:#333"><use href="#i-close"/></svg>' +
+        '<div class="ios-from"><span class="lbl">From</span><span class="val">amy@acme.co.in</span></div>' +
+        '</div><div class="ios-send">Send</div></div></div>' +
+        '<div class="ios-fields">' +
+        '<div class="ios-torow"><div class="ios-toleft"><span class="ios-tolbl">To</span>' +
+        '<span class="ios-chip">Jim Halpert</span></div>' +
+        '<svg class="icon" width="24" height="24" style="color:#888"><use href="#i-chevron-down"/></svg></div>' +
+        '<div class="rule"></div>' +
+        subjectBlock +
+        (subjectBlock ? '<div class="rule"></div>' : '') +
+        '<div class="ios-body">' + (parts.body || '') + '</div>' +
+        '</div>' +
+        (parts.menu || '') +
+        (parts.bar !== null ? '<div class="ios-toolbar" style="background:#fff"><div class="bar-scroll">' + parts.bar + '</div></div>' : '') +
+        /* scrim / catcher carry an act so tapping outside closes what's open */
+        (parts.scrim ? '<div class="scrim"' + (typeof parts.scrim === 'string' ? ' data-act="' + parts.scrim + '"' : '') + '></div>' : '') +
+        (parts.catcher ? '<div class="catch" data-act="' + parts.catcher + '"></div>' : '') +
+        (parts.sheet || '') +
+        /* kbd:false — keyboard dismissed so the user can read; the home
+           indicator is then drawn by whichever surface sits at the bottom */
+        (parts.kbd === false ? '' : KBD) + (parts.over || '') + '</div>';
+    }
+
+    function toast(msg, act) {
+      return '<div class="toast">' + ico('i-check') + msg + '<b data-act="' + act + '">Undo</b></div>';
+    }
+
+    /* ══════════════ OPTION 1 — refine inline, bar becomes the menu ═════ */
+    var ORIG = 'I hope this email finds you well. I am writing to provide a quick update on our ongoing campaign and outline what our team will focus on over the coming week.';
+    var NEW = "Here's a quick update on our campaign and what the team is focused on this week.";
+
+    function o1body(s) {
+      if (s === 'result') return '<p>Hi Jim,<br><br><span class="ai-new">' + NEW + '</span></p>';
+      if (s === 'kept') return '<p>Hi Jim,<br><br>' + NEW + '</p>';
+      return '<p>Hi Jim,<br><br><span class="selhl' + (s === 'working' ? ' shimmer' : '') + '">' + ORIG + '</span></p>';
+    }
+
+    function o1bar(s) {
+      var back = '<div class="back-chip" data-act="back">' + ico('i-chev-left') + '</div>';
+      switch (s) {
+        case 'select': return pill('i-ai-write', 'AI Refine', { cls: 'ai', act: 'open' });
+        case 'actions': return back + pill('i-ai-write', 'Improve', { cls: 'ai', act: 'run' }) +
+          pill('i-shorten', 'Shorten', { act: 'run' }) + pill('i-lengthen', 'Lengthen', { act: 'run' }) +
+          pill('i-grammar', 'Fix grammar', { act: 'run' }) + pill('i-tone', 'Tone', { act: 'tone', trail: ' ›' }) +
+          pill('i-kbd-hide', 'Custom', { act: 'custom' });
+        case 'tone': return back + pill('', 'Friendly', { act: 'run' }) + pill('', 'Formal', { act: 'run' }) +
+          pill('', 'Direct', { act: 'run' }) + pill('', 'Warm', { act: 'run' }) + pill('', 'Confident', { act: 'run' });
+        case 'working': return pill('i-ai-write', '<span>Shortening</span><span class="dots"></span>', { cls: 'ai' }) +
+          pill('i-stop', 'Stop', { cls: 'quiet', act: 'back' });
+        case 'result': return pill('i-check', 'Keep', { cls: 'primary', act: 'keep' }) +
+          pill('i-retry', 'Try again', { act: 'run' }) + pill('i-close', 'Revert', { act: 'revert' }) +
+          pill('i-more-vertical', '', { cls: 'quiet', act: 'open' });
+        case 'custom': return back + '<div class="bar-input">Tell AI what to change…' +
+          '<span class="bar-send" data-act="run">' + ico('i-send-up') + '</span></div>';
+        case 'kept': return pill('i-attachment', 'Attach') + pill('i-ai-write', 'AI Write') +
+          pill('i-templates', 'Templates') + pill('i-track', 'Tracking');
+      }
+    }
+
+    function o1frame(s) {
+      return shell({
+        body: o1body(s), bar: o1bar(s),
+        menu: s === 'select' ? '<div class="ios-menu"><span>Cut</span><span>Copy</span><span>Paste</span>' +
+          '<span>Replace…</span><span style="padding:0 11px">&#8250;</span><div class="ios-menu-tail"></div></div>' : '',
+        over: s === 'kept' ? toast('Text refined', 'revert') : ''
+      });
+    }
+
+    var O1_STEPS = [
+      ['select', '1 · Text selected', 'The bar offers AI Refine.'],
+      ['actions', '2 · Bar becomes the menu', 'Same bar swaps to refine actions — no sheet.'],
+      ['tone', '3 · Drill-in, still in the bar', 'Tone opens a second row; ‹ walks back.'],
+      ['working', '4 · Working in place', 'The selection shimmers. Stop is always there.'],
+      ['result', '5 · Result inline', 'Keep / Try again / Revert.'],
+      ['custom', '6 · Custom prompt', 'Free-text prompt lives in the bar.']
+    ];
+
+    var O1_ACTS = {
+      open: 'actions', tone: 'tone', custom: 'custom', run: 'working',
+      keep: 'kept', revert: 'select'
+    };
+
+    /* ══════════════ OPTION 2 — Smart Write from a blank draft ══════════ */
+    /* Titan's own example prompts (Figma "See examples", 6633:256878) */
+    var EXAMPLES = [
+      'Inviting our clients to a free health and fitness webinar to learn about nutrition advice and exercise routines',
+      'Enhancing our IT services: introducing website and social media design to our offerings',
+      'Offering a special discount of 25% for loyal customers as a token of appreciation',
+      'Proposing a new financial advisory service to help clients optimize their investment portfolios'
+    ];
+    var TYPED = 'Invite Jim to our free health and fitness webinar next week';
+    var SUBJ = 'Free health & fitness webinar';
+    var DRAFT = "Hi Jim,<br><br>We're running a free health and fitness webinar next Thursday at 5 PM, and I'd love for you to join us.<br><br>Over 45 minutes, our coach will cover:<br>&bull; Practical nutrition advice for busy weeks<br>&bull; Simple exercise routines that fit around a working day<br>&bull; Small habits that keep your energy up through the afternoon<br><br>There'll be time at the end for questions, and everyone who attends gets a short follow-up guide with the routines and a week of meal ideas.<br><br>It's free and online, so you can join from anywhere. Just reply to this email and I'll send you the link and a calendar invite.<br><br>Hope to see you there,<br>Amy";
+    var EDIT_ASK = "Make it friendlier and mention there's a recording";
+    var DRAFT2 = "Hi Jim,<br><br>Quick one — we're hosting a free health and fitness webinar next Thursday at 5 PM, and I'd really love for you to join.<br><br>In 45 minutes our coach will cover:<br>&bull; Nutrition that actually works in a busy week<br>&bull; Short routines that fit around work<br>&bull; Small habits that keep your energy up<br><br>Can't make it live? No problem — everyone who signs up gets the recording, plus a follow-up guide with a week of meal ideas.<br><br>Just reply and I'll send over the link and a calendar invite.<br><br>Cheers,<br>Amy";
+
+    function sheet(inner) { return '<div class="sw">' + inner + '</div>'; }
+    function fullSheet(inner, kb) {
+      return '<div class="sw full' + (kb ? ' kb' : '') + '"><div class="sw-grab"></div>' + swHead() + inner +
+        (kb ? '' : '<div class="home-ind"></div>') + '</div>';
+    }
+
+    /* The draft under review. st2.v = versions written so far (1 or 2),
+       st2.view = the one on screen, st2.rw = a rewrite is in flight. A
+       rewrite adds a version; it never replaces the one the user read. */
+    function draftText() { return st2.view === 2 ? DRAFT2 : DRAFT; }
+    function reviewState() { return st2.v === 2 ? 'draft-v2' : 'draft'; }
+    function draftCard(act) {
+      var ver = st2.v === 2 ? '<span class="sw-ver">' +
+        '<span class="a' + (st2.view === 1 ? ' off' : '') + '" data-act="ver:1">' + ico('i-chev-left') + '</span>' +
+        st2.view + ' / 2' +
+        '<span class="a' + (st2.view === 2 ? ' off' : '') + '" data-act="ver:2">' + ico('i-chev-left', 'flip') + '</span></span>' : '';
+      return '<div class="sw-draft' + (st2.rw ? ' shimmer' : '') + '"' + (act ? ' data-act="' + act + '"' : '') + '>' +
+        '<div class="sw-subj"><div><span>Subject</span>' + SUBJ + '</div>' + ver + '</div>' + draftText() + '</div>';
+    }
+    function styleRow(open) {
+      return '<button type="button" class="sw-style" data-act="' + (open ? 'review' : 'restyle-open') + '">' + ico('i-tone') + 'Writing style ' +
+        '<span class="val">· ' + st2.tone + ', ' + st2.len + '</span>' + ico('i-chev-down', open ? 'flip' : '') + '</button>';
+    }
+
+    /* tone/length chips in the review sheet rewrite on tap; the row above
+       them is the toggle that closes them again */
+    function swRestyle() {
+      function c(v, cur, k) { return '<span class="sw-chip' + (v === cur ? ' on' : '') + '" data-act="restyle:' + k + ':' + v + '">' + v + '</span>'; }
+      return styleRow(true) + '<div class="sw-opts">' +
+        '<div class="sw-optrow"><span class="sw-optlbl">Tone</span>' +
+        c('Professional', st2.tone, 'tone') + c('Casual', st2.tone, 'tone') + c('Friendly', st2.tone, 'tone') + '</div>' +
+        '<div class="sw-optrow"><span class="sw-optlbl">Length</span>' +
+        c('Short', st2.len, 'len') + c('Long', st2.len, 'len') + '</div></div>';
+    }
+    function swAsk(typed) {
+      if (typed) return '<div class="ask-row"><div class="sw-field ask">' +
+        '<span class="txt">' + EDIT_ASK + '<span class="sw-caret"></span></span>' +
+        '<button type="button" class="bar-send" data-act="rewrite">' + ico('i-send-up') + '</button></div>' +
+        '<button type="button" class="sw-cancel" data-act="review">Cancel</button></div>';
+      return '<div class="sw-field ask idle" data-act="edit"><span class="txt ph">Tell AI what to change…</span>' +
+        '<button type="button" class="bar-send off">' + ico('i-send-up') + '</button></div>';
+    }
+    var REVIEW_FOOT = '<div class="sw-foot fill"><button type="button" class="sw-btn ghost" data-act="confirm">Discard</button>' +
+      '<button type="button" class="sw-btn ghost" data-act="regen">' + ico('i-retry') + ' Regenerate</button>' +
+      '<button type="button" class="sw-btn" data-act="done">Insert</button></div>';
+    var CONFIRM = '<div class="scrim top" data-act="review"></div><div class="confirm">' +
+      '<div class="grp"><div class="t"><b>Discard this draft?</b>It hasn’t been added to your email yet. ' +
+      'The draft and your prompt will be lost.</div>' +
+      '<div class="b red" data-act="blank">Discard draft</div></div>' +
+      '<div class="grp"><div class="b" data-act="review">Keep reviewing</div></div></div>';
+    function swHead() {
+      return '<div class="sw-head">' + ico('i-ai-write') +
+        '<span class="sw-title">Smart Write by Titan AI</span>' +
+        '<svg class="icon sw-x" data-act="close"><use href="#i-close"/></svg></div>';
+    }
+    function swOpts(tone, len) {
+      function c(v, cur, act) { return '<span class="sw-chip' + (v === cur ? ' on' : '') + '" data-act="' + act + ':' + v + '">' + v + '</span>'; }
+      return '<div class="sw-opts">' +
+        '<div class="sw-optrow"><span class="sw-optlbl">Tone</span>' +
+        c('Professional', tone, 'tone') + c('Casual', tone, 'tone') + c('Friendly', tone, 'tone') + '</div>' +
+        '<div class="sw-optrow"><span class="sw-optlbl">Length</span>' +
+        c('Short', len, 'len') + c('Long', len, 'len') + '</div></div>';
+    }
+
+    function o2frame(s, st) {
+      st = st || {};
+      var ex = EXAMPLES[(st.ex || 0) % EXAMPLES.length];
+      switch (s) {
+        case 'blank':   /* entry — the normal compose row, nothing new on screen */
+          return shell({
+            subject: 'Subject', body: '', bar:
+              pill('i-attachment', 'Attach') + pill('i-ai-write', 'AI Write', { cls: 'ai', act: 'open' }) +
+              pill('i-templates', 'Templates') + pill('i-track', 'Tracking')
+          });
+
+        case 'prompt':  /* sheet docked above the keyboard, examples cycling */
+          return shell({
+            subject: 'Subject', body: '', bar: null, sheet: sheet(
+              swHead() +
+              '<div class="sw-field"><span class="sw-caret"></span><span class="sw-ex" key="' + (st.ex || 0) + '">' + ex + '</span></div>' +
+              '<div class="sw-foot"><span class="sw-style" data-act="style">' + ico('i-tone') + 'Writing style</span>' +
+              '<span class="sw-btn off">Create</span></div>')
+          });
+
+        case 'style':   /* tone + length, inline — the sheet grows by one block */
+          return shell({
+            subject: 'Subject', body: '', bar: null, sheet: sheet(
+              swHead() + swOpts(st.tone || 'Professional', st.len || 'Short') +
+              '<div class="sw-field"><span class="sw-caret"></span><span class="sw-ex">' + ex + '</span></div>' +
+              '<div class="sw-foot"><span class="sw-style" data-act="prompt">' + ico('i-chev-left') + 'Back</span>' +
+              '<span class="sw-btn off">Create</span></div>')
+          });
+
+        case 'typed':   /* once typing starts the example stops, Create wakes up */
+          return shell({
+            subject: 'Subject', body: '', bar: null, sheet: sheet(
+              swHead() +
+              '<div class="sw-field">' + TYPED + '<span class="sw-caret"></span></div>' +
+              '<div class="sw-foot"><span class="sw-style" data-act="style">' + ico('i-tone') + 'Writing style</span>' +
+              '<span class="sw-btn" data-act="create">Create</span></div>')
+          });
+
+        case 'writing': /* keyboard drops, sheet grows; the composer stays untouched */
+          /* a rewrite keeps the draft on screen, shimmering; Stop returns to
+             it. A first write has nothing to keep, so Stop returns to the prompt */
+          return shell({
+            subject: 'Subject', body: '', bar: null, kbd: false, scrim: true,
+            sheet: fullSheet(
+              '<div class="sw-status">' + ico('i-ai-write') + '<span>' + (st2.rw ? 'Rewriting' : 'Writing your draft') +
+              '</span><span class="dots"></span></div>' +
+              (st2.rw ? draftCard() :
+                '<div class="sw-draft"><div class="gen"><i style="width:40%"></i><i style="width:94%"></i><i style="width:88%"></i>' +
+                '<i style="width:96%"></i><i style="width:62%"></i><i style="width:90%"></i><i style="width:74%"></i></div></div>') +
+              '<div class="sw-foot fill"><span class="sw-btn ghost" data-act="' + (st2.rw ? 'review' : 'typed') + '">' +
+              ico('i-stop') + ' Stop</span></div>')
+          });
+
+        case 'draft-v2':  /* reached by Next without a rewrite — fake one */
+          if (st2.v !== 2) { st2.v = 2; st2.view = 2; }
+          /* falls through */
+        case 'draft':   /* review in the sheet; only Insert writes to the composer */
+          return shell({
+            subject: 'Subject', body: '', bar: null, kbd: false, scrim: 'confirm',
+            sheet: fullSheet(draftCard() + styleRow(false) + swAsk(false) + REVIEW_FOOT)
+          });
+
+        case 'draft-style': /* style after reading — same sheet, picking one rewrites */
+          return shell({
+            subject: 'Subject', body: '', bar: null, kbd: false, scrim: 'review',
+            sheet: fullSheet(draftCard('review') + swRestyle() + swAsk(false) + REVIEW_FOOT)
+          });
+
+        case 'draft-edit':  /* describe a change: keyboard back, draft still readable */
+          return shell({
+            subject: 'Subject', body: '', bar: null, scrim: 'review',
+            sheet: fullSheet(draftCard('review') + swAsk(true), true)
+          });
+
+        case 'confirm':     /* leaving with a draft that was never inserted */
+          return shell({
+            subject: 'Subject', body: '', bar: null, kbd: false, scrim: true,
+            sheet: fullSheet(draftCard() + styleRow(false) + swAsk(false) + REVIEW_FOOT),
+            over: CONFIRM
+          });
+
+        case 'done':    /* sheet gone, normal compose row back, draft in the body */
+          return shell({
+            subject: SUBJ,
+            body: '<p>' + draftText() + '</p>',
+            over: toast('Draft inserted', 'review'),
+            bar: pill('i-attachment', 'Attach') + pill('i-ai-write', 'AI Write', { cls: 'ai', act: 'open' }) +
+              pill('i-templates', 'Templates') + pill('i-track', 'Tracking')
+          });
+      }
+    }
+
+    var O2_STEPS = [
+      ['blank', '1 · Blank draft', 'Nothing new on screen — AI Write is just one of the usual chips.'],
+      ['prompt', '2 · Prompt sheet', 'A short sheet docks on the keyboard. Titan examples cycle in the field.'],
+      ['typed', '3 · User types', 'The example stops; Create wakes up. Writing style is one tap away.'],
+      ['style', '4 · Writing style inline', 'Tone and length expand inside the same sheet — no second page.'],
+      ['writing', '5 · Writing', 'The draft area fills in place. Stop stays available.'],
+      ['draft', '6 · Review', 'Insert / Recreate / Discard, plus a line to refine further.']
+    ];
+
+    /* ══════════════ OPTION 2 — chat with AI (web flow, mobile) ═════════ */
+    /* Web reference: Figma 4691:190081. Prompt box → Generating… → draft in
+       the body → "Describe your change" with Tone / Length, undo / redo and
+       feedback; the counter becomes an upgrade banner at 5 or fewer.
+       Language (EN ▾) is dropped — not supported on mobile. Every action is
+       data-act="go:<state>", so the dock can be rewired without new code. */
+    var C_PROMPT = 'Write an email to my team about the design workshop next Sat, 2PM – 4PM';
+    var C_SUBJ = 'Design workshop next Saturday';
+    var C_V1 = "<p>Hi team,<br><br>I want to remind you about the design workshop scheduled for next Saturday from 2 PM to 4 PM. This will be a great opportunity for us to collaborate and refine our design approach.<br><br>Please make sure to mark your calendars, and come prepared with your ideas and any materials you'd like to discuss.<br><br>Thanks!</p>";
+    var C_V2 = "<p>Hi team,<br><br>Just a reminder that we have our design workshop next Saturday from 2:00 PM to 4:00 PM.<br><br>Looking forward to spending the afternoon together, collaborating, sharing ideas, and refining our design approach. If you have any work, inspiration, or questions you'd like to discuss, feel free to bring them along.<br><br>See you all next Saturday!</p>";
+    var TONES = ['Professional', 'Casual', 'Friendly'];
+    var LENS = ['Short', 'Long'];
+    /* cv = version in the body (1 or 2), fb = thumbs given to that version */
+    var cv = 1, cMax = 1, fb = null;
+
+    function go(state) { return ' data-act="go:' + state + '"'; }
+
+    function cField(o) {
+      var send = o.busy
+        ? '<span class="cx-send"' + go(o.busy) + '>' + ico('i-stop') + '</span>'
+        : '<span class="cx-send' + (o.send ? '' : ' off') + '"' + (o.send ? go(o.send) : '') + '>' + ico('i-send-up') + '</span>';
+      return '<div class="cx-row"><div class="cx-field' + (o.focus ? ' focus' : '') + '" style="flex:1"' + (o.tap ? go(o.tap) : '') + '>' +
+        (o.busy ? '<span class="cx-spin"></span>' : ico('i-ai-write')) +
+        '<span class="cx-text' + (o.ph ? ' ph' : '') + '">' + o.text + (o.focus ? '<span class="sw-caret"></span>' : '') + '</span>' +
+        (o.count ? '<span class="cx-count">' + o.count + '</span>' : '') + send + '</div>' +
+        '<span class="cx-x"' + go(o.close) + '>' + ico('i-close') + '</span></div>';
+    }
+
+    /* Tone / Length shortcuts, history and feedback — hidden while typing */
+    /* the state to land on when a menu or the follow-up keyboard closes */
+    function cRest() { return cv === 2 ? 'c-v2' : cMax === 2 ? 'c-v1back' : 'c-draft'; }
+
+    function cTools(menu) {
+      function list(opts, cur) {
+        return '<div class="cx-menu">' + opts.map(function (t) {
+          return '<div class="' + (t === cur ? 'on' : '') + '"' + go(t === cur ? cRest() : 'c-regen') + '>' + t +
+            (t === cur ? ico('i-check') : '') + '</div>';
+        }).join('') + '</div>';
+      }
+      function chip(key, label, opts) {
+        var open = menu === key;
+        return '<span class="cx-chip' + (open ? ' open' : '') + '"' + go(open ? cRest() : 'c-' + key) + '>' + label +
+          ico('i-chev-down', open ? 'flip' : '') + (open ? list(opts, label) : '') + '</span>';
+      }
+      return '<div class="cx-row">' + chip('tone', 'Professional', TONES) + chip('len', 'Long', LENS) +
+        '<span class="cx-push"></span>' +
+        '<span class="cx-ib' + (cv === 2 ? '"' + go('c-v1back') : ' off"') + '>' + ico('i-undo') + '</span>' +
+        '<span class="cx-ib' + (cv === 1 && cMax === 2 ? '"' + go('c-v2') : ' off"') + '>' + ico('i-redo') + '</span>' +
+        '<span class="cx-sep"></span>' +
+        '<span class="cx-ib' + (fb === 'up' ? ' on' : '') + '" data-act="fb:up">' + ico('i-thumb-up') + '</span>' +
+        '<span class="cx-ib' + (fb === 'down' ? ' on' : '') + '" data-act="fb:down">' + ico('i-thumb-down') + '</span></div>';
+    }
+
+    /* the refine dock for whichever version is in the body */
+    function cRefine(menu) {
+      return dock(cField({ text: 'Describe your change', ph: true, tap: 'c-follow', close: cv === 2 ? 'c-done' : 'c-done1' }) +
+        cTools(menu) + cLeft(cv === 2 ? 5 : 6));
+    }
+    function cBody() { return cv === 2 ? C_V2 : C_V1; }
+
+    function cLeft(n) {
+      if (n > 5) return '<div class="cx-meta">' + n + ' suggestions left</div>';
+      return '<div class="cx-banner"><span class="up">' + ico('i-send-up') + '</span>' +
+        '<span>' + n + ' suggestions left. <b>Upgrade to get unlimited suggestions</b></span></div>';
+    }
+
+    function dock(inner, kb) {
+      return '<div class="cx' + (kb ? ' kb' : '') + '">' + inner + (kb ? '' : '<div class="home-ind"></div>') + '</div>';
+    }
+
+    var COMPOSE_ROW = function (act) {
+      return pill('i-attachment', 'Attach') + pill('i-ai-write', 'AI Write', { cls: 'ai', act: act }) +
+        pill('i-templates', 'Templates') + pill('i-track', 'Tracking');
+    };
+
+    function o3frame(s) {
+      var gen = '<div class="gen"><i style="width:30%"></i><i style="width:94%"></i><i style="width:88%"></i>' +
+        '<i style="width:96%"></i><i style="width:62%"></i><i style="width:40%"></i></div>';
+      switch (s) {
+        case 'c-blank':
+          cv = 1; cMax = 1; fb = null;
+          return shell({ subject: 'Subject', body: '', bar: COMPOSE_ROW('go:c-open') });
+
+        case 'c-open':   /* the bar becomes the prompt — riding on the keyboard */
+          return shell({
+            subject: 'Subject', body: '', bar: null, sheet: dock(
+              cField({ text: 'Describe your email', ph: true, focus: true, count: '7 left', tap: 'c-typed', close: 'c-blank' }), true)
+          });
+
+        case 'c-typed':
+          return shell({
+            subject: 'Subject', body: '', bar: null, sheet: dock(
+              cField({ text: C_PROMPT, focus: true, send: 'c-gen', close: 'c-blank' }), true)
+          });
+
+        case 'c-gen':    /* keyboard drops, the body fills, Stop lives in the field */
+          return shell({
+            subject: 'Subject', body: gen, bar: null, kbd: false, sheet: dock(
+              cField({ text: 'Generating…', ph: true, busy: 'c-typed', close: 'c-blank' }))
+          });
+
+        case 'c-draft':
+          cv = 1;
+          return shell({ subject: C_SUBJ, body: C_V1, bar: null, kbd: false, sheet: cRefine() });
+
+        case 'c-tone':   /* shortcut menus close on: same chip, current value, or tap outside */
+        case 'c-len':
+          return shell({
+            subject: C_SUBJ, body: cBody(), bar: null, kbd: false, catcher: 'go:' + cRest(),
+            sheet: cRefine(s.slice(2))
+          });
+
+        case 'c-follow': /* typing a follow-up: shortcuts step aside, keyboard back */
+          return shell({
+            subject: C_SUBJ, body: cBody(), bar: null, catcher: 'go:' + cRest(), sheet: dock(
+              cField({ text: 'Make the tone warmer', focus: true, send: 'c-regen', close: cRest() }), true)
+          });
+
+        case 'c-regen':  /* Stop keeps the version that was there */
+          return shell({
+            subject: C_SUBJ, body: '<div class="shimmer">' + cBody() + '</div>', bar: null, kbd: false, sheet: dock(
+              cField({ text: 'Generating…', ph: true, busy: cRest(), close: cRest() }))
+          });
+
+        case 'c-v2':     /* new version in place; undo walks back to v1 */
+          if (cv !== 2) fb = null;
+          cv = 2; cMax = 2;
+          return shell({ subject: C_SUBJ, body: C_V2, bar: null, kbd: false, sheet: cRefine() });
+
+        case 'c-v1back': /* not a step of its own — undo from v2, redo returns */
+          cv = 1;
+          return shell({ subject: C_SUBJ, body: C_V1, bar: null, kbd: false, sheet: cRefine() });
+
+        case 'c-done':
+        case 'c-done1':  /* closing keeps the draft; AI Write reopens the dock */
+          return shell({
+            subject: C_SUBJ, body: s === 'c-done' ? C_V2 : C_V1,
+            bar: COMPOSE_ROW('go:' + (s === 'c-done' ? 'c-v2' : 'c-v1back'))
+          });
+      }
+    }
+
+    function o3combinedFrame(s) {
+      var gen = '<div class="gen"><i style="width:30%"></i><i style="width:94%"></i><i style="width:88%"></i>' +
+        '<i style="width:96%"></i><i style="width:62%"></i><i style="width:40%"></i></div>';
+      switch (s) {
+        case 'c-blank':
+          cv = 1; cMax = 1; fb = null;
+          return shell({ subject: 'Subject', body: '', bar: COMPOSE_ROW('go:c-open') });
+
+        case 'c-open':
+          return shell({
+            subject: 'Subject', body: '', bar: null, sheet: dock(
+              cField({ text: 'Describe your email', ph: true, focus: true, count: '7 left', tap: 'c-typed', close: 'c-blank' }), true)
+          });
+
+        case 'c-typed':
+          return shell({
+            subject: 'Subject', body: '', bar: null, sheet: dock(
+              cField({ text: C_PROMPT, focus: true, send: 'c-gen', close: 'c-blank' }), true)
+          });
+
+        case 'c-gen':
+          return shell({
+            subject: 'Subject', body: gen, bar: null, kbd: false, sheet: dock(
+              cField({ text: 'Generating…', ph: true, busy: 'c-typed', close: 'c-blank' }))
+          });
+
+        case 'c-draft':
+          cv = 1;
+          return shell({
+            subject: C_SUBJ,
+            body: C_V1,
+            bar: null,
+            kbd: false,
+            scrim: true,
+            sheet: '<div class="cx-modal">' +
+              '<div class="cx-modal-head">' + ico('i-ai-write') + '<span>Smart Write by Titan AI</span></div>' +
+              '<div class="cx-modal-draft">' + C_V1 + '</div>' +
+              '<div class="cx-row"><button type="button" class="cx-chip">Professional</button><button type="button" class="cx-chip">Short</button></div>' +
+              '<div class="cx-row"><div class="cx-field" style="flex:1"><span class="cx-text ph">Tell AI what to change…</span></div></div>' +
+              '<div class="cx-modal-actions"><button type="button" class="cx-action ghost" data-act="c-regen">Regenerate</button><button type="button" class="cx-action primary" data-act="c-done">Insert</button></div>' +
+              '</div>'
+          });
+
+        case 'c-regen':
+          return shell({
+            subject: C_SUBJ,
+            body: '<div class="shimmer">' + C_V1 + '</div>',
+            bar: null,
+            kbd: false,
+            scrim: true,
+            sheet: '<div class="cx-modal">' +
+              '<div class="cx-modal-head">' + ico('i-ai-write') + '<span>Smart Write by Titan AI</span></div>' +
+              '<div class="cx-modal-draft">' + '<div class="shimmer">' + C_V1 + '</div>' + '</div>' +
+              '<div class="cx-row"><button type="button" class="cx-chip">Professional</button><button type="button" class="cx-chip">Short</button></div>' +
+              '<div class="cx-row"><div class="cx-field" style="flex:1"><span class="cx-text ph">Tell AI what to change…</span></div></div>' +
+              '<div class="cx-modal-actions"><button type="button" class="cx-action ghost" data-act="c-regen">Regenerate</button><button type="button" class="cx-action primary" data-act="c-done">Insert</button></div>' +
+              '</div>'
+          });
+
+        case 'c-done':
+          return shell({
+            subject: C_SUBJ,
+            body: C_V1,
+            bar: COMPOSE_ROW('go:c-blank')
+          });
+      }
+    }
+
+        /* ══════════════ stepper wiring ════════════════════════════════════ */
+
+    /* Each option is an ordered walkthrough. Direct taps inside the phone can
+       jump anywhere in the list; the step counter just follows along. */
+    var FLOWS = {
+      1: {
+        key: 'write',
+        name: 'Smart Write from blank',
+        render: function (s) { return o2frame(s, st2); },
+        steps: [
+          ['blank', 'Blank draft', 'Nothing new on screen. AI Write is just one of the usual chips above the keyboard.'],
+          ['prompt', 'Prompt sheet', 'A short sheet docks on top of the keyboard. Titan’s own example prompts cycle in the field every few seconds.'],
+          ['typed', 'User types', 'The moment typing starts the example stops and Create wakes up. Writing style stays one tap away.'],
+          ['style', 'Writing style inline', 'Tone and length expand inside the same sheet — never a second page.'],
+          ['writing', 'Writing', 'The keyboard drops and the sheet grows to reading height. The draft is written inside the sheet — the composer stays untouched. Stop stays available.'],
+          ['draft', 'Review in the sheet', 'Scroll the whole draft, subject included, before anything reaches the composer. Writing style and “Tell AI what to change” stay right here, under the draft.'],
+          ['draft-style', 'Change style after reading', 'Writing style opens under the draft. Tapping a tone or length rewrites it. To just keep reading, tap the Writing style row again (▴), the draft, or the dimmed area — the options fold away.'],
+          ['draft-edit', 'Describe a change', 'The keyboard comes back and the sheet rides on it, draft still scrollable. Cancel — or tapping the draft — drops the keyboard and returns to reading.'],
+          ['draft-v2', 'Compare versions', 'A rewrite is added as version 2 — it never replaces what they read. ‹ › flips between versions; Insert uses the one on screen. Stop during a rewrite keeps the current draft.'],
+          ['confirm', 'Leaving without inserting', '× , Discard or tapping outside the sheet asks first — the draft isn’t in the email yet, so closing would lose it.'],
+          ['done', 'Inserted, with undo', 'Only now does the draft land in the composer. Undo puts it back in the sheet, versions and all.']
+        ]
+      },
+      2: {
+        key: 'chat',
+        name: 'Replacing content directly (like web)',
+        render: o3frame,
+        steps: [
+          ['c-blank', 'Blank draft', 'Same entry as everywhere else: AI Write is one of the usual chips above the keyboard.'],
+          ['c-open', 'Prompt rides the keyboard', 'The bar turns into the prompt field, already focused. The suggestion counter sits inside it, as on web.'],
+          ['c-typed', 'User types', 'The field grows with the prompt. Send wakes up.'],
+          ['c-gen', 'Generating', 'Keyboard drops so the draft can be read as it fills the body. Stop replaces Send.'],
+          ['c-draft', 'Draft + refine dock', 'The dock settles at the bottom: “Describe your change”, Tone and Length, undo / redo, feedback. No language picker on mobile.'],
+          ['c-tone', 'Shortcut menu', 'Tone and Length each open their own menu. Picking a new value regenerates straight away; tapping the chip again, the current value, or anywhere on the draft closes it with nothing changed.'],
+          ['c-follow', 'Follow-up prompt', 'Tapping the field brings the keyboard back and the shortcuts step aside, as on web. Tapping the draft or × drops the keyboard without sending.'],
+          ['c-regen', 'Regenerating', 'The current draft shimmers in place while the new version is written. Stop keeps the draft that was there.'],
+          ['c-v2', 'New version', 'Undo walks back to the earlier version, redo returns. Thumbs toggle on and off per version. At 5 left the counter becomes the upgrade banner.'],
+          ['c-done', 'Done', 'Closing the dock keeps the draft and brings back the normal compose row. AI Write reopens the dock.']
+        ]
+      },
+      3: {
+        key: 'draft-sheet',
+        name: 'Dedicated bottom sheet',
+        render: o3sheetFrame,
+        steps: [
+          ['s-blank', 'Blank draft', 'AI Write starts as one of the usual compose actions.'],
+          ['s-open', 'Prompt in the keyboard dock', 'The field starts exactly as the chat layout does.'],
+          ['s-typed', 'Typed prompt', 'The prompt remains in the same dock while the user edits it.'],
+          ['s-generate', 'Generating', 'The draft is generated while the dock stays anchored at the bottom.'],
+          ['s-draft', 'Draft review in the dock', 'The dock keeps the same chat-style controls: tone and length, with quick feedback actions.'],
+          ['s-tone', 'Tone menu', 'Picking a tone applies the new voice without leaving the draft sheet.'],
+          ['s-len', 'Length menu', 'Picking a length updates the draft size without leaving the dock.'],
+          ['s-done', 'Done', 'The draft is accepted and the composer returns to its normal state.']
+        ]
+      }
+    };
+
+    function sTools(menu) {
+      function list(opts, cur, key) {
+        return '<div class="cx-menu">' + opts.map(function (t) {
+          var selected = t === cur;
+          return '<div class="' + (selected ? 'on' : '') + '"' + (selected ? go('s-draft') : ' data-act="' + key + ':' + t + '"') + '>' + t + (selected ? ico('i-check') : '') + '</div>';
+        }).join('') + '</div>';
+      }
+      function chip(key, label, opts) {
+        var open = menu === key;
+        return '<span class="cx-chip' + (open ? ' open' : '') + '"' + go(open ? 's-draft' : 's-' + key) + '>' + label +
+          ico('i-chev-down', open ? 'flip' : '') + (open ? list(opts, key === 'tone' ? sDraft.tone : sDraft.len, key) : '') + '</span>';
+      }
+      return '<div class="cx-row" style="gap:8px; align-items:center;">' +
+        chip('tone', sDraft.tone, TONES) +
+        chip('len', sDraft.len, LENS) +
+        '<span class="cx-push"></span>' +
+        '<span class="cx-ib" data-act="s-draft">' + ico('i-thumb-up') + '</span>' +
+        '<span class="cx-ib" data-act="s-draft">' + ico('i-thumb-down') + '</span>' +
+        '</div>';
+    }
+
+    function o3sheetFrame(s) {
+      var draft = '<p>Hi team,<br><br>Just a reminder that we have our design workshop next Saturday from 2:00 PM to 4:00 PM.<br><br>Looking forward to spending the afternoon together, collaborating, sharing ideas, and refining our design approach. If you have any work, inspiration, or questions you would like to discuss, feel free to bring them along.<br><br>See you all next Saturday!</p>';
+      var draftSheet = '<div class="sw-head">' + ico('i-ai-write') +
+        '<span class="sw-title">Smart Write by Titan AI</span>' +
+        '<span class="sw-ver"><span class="a" data-act="s-draft">' + ico('i-chev-left') + '</span>2 / 2<span class="a off" data-act="s-draft">' + ico('i-chev-left', 'flip') + '</span></span>' +
+        '<svg class="icon sw-x" data-act="s-blank"><use href="#i-close"/></svg></div>' +
+      '<div class="cx-modal-draft">' + draft + '</div>' +
+        sTools(s === 's-tone' ? 'tone' : (s === 's-len' ? 'len' : null)) +
+        '<div class="cx-row" style="justify-content:space-between; margin-top:6px;">' +
+          '<div class="cx-field" style="flex:1; min-width:0;" data-act="s-draft">' +
+            '<span class="cx-text ph">Describe your change</span>' +
+          '</div>' +
+          '<span class="cx-send" data-act="s-done">' + ico('i-send-up') + '</span>' +
+        '</div>';
+      switch (s) {
+        case 's-blank':
+          return shell({ subject: '', body: '', bar: COMPOSE_ROW('go:s-open') });
+        case 's-open':
+          return shell({ subject: '', body: '', bar: null, sheet: dock(
+            cField({ text: 'Describe your email', ph: true, focus: true, count: '7 left', tap: 's-typed', close: 's-blank' }), true) });
+        case 's-typed':
+          return shell({ subject: '', body: '', bar: null, sheet: dock(
+            cField({ text: C_PROMPT, focus: true, send: 's-generate', close: 's-blank' }), true) });
+        case 's-generate':
+          return shell({ subject: '', body: '', bar: null, kbd: false, sheet: dock(
+            cField({ text: 'Generating…', ph: true, busy: 's-typed', close: 's-blank' })) });
+        case 's-draft':
+        case 's-tone':
+        case 's-len':
+          return shell({
+            subject: '', body: '', bar: null, kbd: false, sheet: dock(draftSheet, false)
+          });
+        case 's-done':
+          return shell({ subject: '', body: draft, bar: COMPOSE_ROW('go:s-blank') });
+      }
+    }
+
+    var VIEW = document.getElementById('view');
+    var opt = 2, idx = 0, st2 = { ex: 0, tone: 'Professional', len: 'Short', v: 1, view: 1, rw: false }, sDraft = { tone: 'Professional', len: 'Short' };
+    var timer = null, exTimer = null;
+    /* a tap can reach a state that isn't its own step (undo, closing from an
+       older version); it shows under the step it branched from */
+    var detour = null;
+
+    function flow() { return FLOWS[opt]; }
+    function stateAt(i) { return detour || flow().steps[i][0]; }
+
+    /* jump the counter to whatever state a tap produced */
+    function syncTo(state) {
+      var i = flow().steps.findIndex(function (s) { return s[0] === state; });
+      if (i >= 0) { idx = i; detour = null; } else detour = state;
+      draw();
+    }
+
+    function draw() {
+      clearTimeout(timer); clearInterval(exTimer);
+      var f = flow(), step = f.steps[idx], state = stateAt(idx);
+
+      VIEW.innerHTML =
+        '<section class="platform stage">' +
+        '<div class="stage-head">' +
+        '<div class="step-count">' + f.name + ' &middot; step ' + (idx + 1) + ' of ' + f.steps.length + '</div>' +
+        '<h3 class="step-title">' + step[1] + '</h3>' +
+        '<p class="step-desc">' + step[2] + '</p></div>' +
+        '<div class="stage-frame" id="live">' + f.render(state) + '</div>' +
+        '<div class="nav">' +
+        '<button id="prev"' + (idx === 0 ? ' disabled' : '') + '>&larr; Prev</button>' +
+        '<div class="dots">' + f.steps.map(function (_, i) {
+          return '<i class="' + (i === idx ? 'on' : '') + '" data-i="' + i + '"></i>';
+        }).join('') + '</div>' +
+        '<button class="go" id="next"' + (idx === f.steps.length - 1 ? ' disabled' : '') + '>Next &rarr;</button>' +
+        '</div>' +
+        '<p class="stage-hint">The screen is live — tap inside it to drive the flow, or step through with ' +
+        '<kbd>&larr;</kbd> <kbd>&rarr;</kbd>.</p>' +
+        '</section>';
+
+      document.getElementById('prev').onclick = function () { if (idx > 0) { idx--; detour = null; draw(); } };
+      document.getElementById('next').onclick = function () { if (idx < f.steps.length - 1) { idx++; detour = null; draw(); } };
+      VIEW.querySelectorAll('.dots i').forEach(function (d) {
+        d.onclick = function () { idx = +d.dataset.i; detour = null; draw(); };
+      });
+
+      /* auto-advance out of the "busy" states, as the real thing would */
+      if (state === 'working') timer = setTimeout(function () { syncTo('result'); }, 1500);
+      if (state === 'writing') timer = setTimeout(function () {
+        if (!st2.rw) return syncTo('draft');
+        st2.rw = false; st2.v = 2; st2.view = 2; syncTo('draft-v2');
+      }, 1800);
+      if (state === 'c-gen') timer = setTimeout(function () { syncTo('c-draft'); }, 1800);
+      if (state === 'c-regen') timer = setTimeout(function () { syncTo('c-v2'); }, 1800);
+      if (state === 's-typed') timer = setTimeout(function () { syncTo('s-generate'); }, 1200);
+      if (state === 's-generate') timer = setTimeout(function () { syncTo('s-draft'); }, 1600);
+
+      /* keep the example prompts switching for as long as one is on screen */
+      if (f.key === 'write' && (state === 'prompt' || state === 'style')) {
+        exTimer = setInterval(function () {
+          var host = VIEW.querySelector('.sw-ex');
+          if (!host) return clearInterval(exTimer);
+          st2.ex = (st2.ex + 1) % EXAMPLES.length;
+          host.textContent = EXAMPLES[st2.ex];
+          host.style.animation = 'none'; void host.offsetWidth; host.style.animation = '';
+        }, 2400);
+      }
+    }
+
+    /* taps inside the phone */
+    VIEW.addEventListener('click', function (e) {
+      if (!e.target.closest('#live')) return;
+
+      if (flow().key === 'write' && e.target.closest('.sw-field')) {
+        var cur = stateAt(idx);
+        if (cur === 'prompt' || cur === 'style') return syncTo('typed');
+      }
+
+      var t = e.target.closest('[data-act]'); if (!t) return;
+      var a = t.dataset.act, cur = stateAt(idx);
+
+      if (a.indexOf('go:') === 0) return syncTo(a.slice(3));
+      if (a.indexOf('fb:') === 0) { var f = a.slice(3); fb = fb === f ? null : f; return draw(); }
+
+      if (flow().key === 'refine') {
+        if (a === 'back') return syncTo((cur === 'tone' || cur === 'working' || cur === 'custom') ? 'actions' : 'select');
+        if (O1_ACTS[a]) return syncTo(O1_ACTS[a]);
+        return;
+      }
+      if (flow().key === 'draft-sheet') {
+        if (a === 's-open' || a === 's-typed' || a === 's-generate' || a === 's-draft' || a === 's-done') return syncTo(a);
+        if (a === 's-tone') return syncTo(cur === 's-tone' ? 's-draft' : 's-tone');
+        if (a === 's-len') return syncTo(cur === 's-len' ? 's-draft' : 's-len');
+        if (a === 's-redo') return syncTo('s-generate');
+        if (a.indexOf('s-tone:') === 0) { sDraft.tone = a.split(':').slice(1).join(':'); return syncTo('s-draft'); }
+        if (a.indexOf('s-len:') === 0) { sDraft.len = a.split(':').slice(1).join(':'); return syncTo('s-draft'); }
+      }
+      if (flow().key === 'combined') {
+        if (a === 'c-regen') return syncTo('c-regen');
+        if (a === 'c-done') return syncTo('c-done');
+        if (a === 'c-open' || a === 'c-typed' || a === 'c-gen' || a === 'c-draft') return syncTo(a);
+      }
+      if (a.indexOf('restyle:') === 0) {            /* style change after reading → rewrite */
+        var q = a.split(':');
+        st2[q[1] === 'tone' ? 'tone' : 'len'] = q[2]; st2.rw = true;
+        return syncTo('writing');
+      }
+      if (a === 'rewrite' || a === 'regen') { st2.rw = true; return syncTo('writing'); }
+      if (a.indexOf('ver:') === 0) { st2.view = +a.slice(4); return draw(); }
+      if (a === 'review') { st2.rw = false; return syncTo(reviewState()); }
+      /* × asks first whenever there's an un-inserted draft to lose */
+      if (a === 'close') return syncTo(/^draft|^confirm/.test(cur) || st2.rw ? 'confirm' : 'blank');
+      if (a === 'blank') { st2.v = 1; st2.view = 1; st2.rw = false; }
+      if (a.indexOf(':') > 0) {                     /* tone / length chips */
+        var p = a.split(':');
+        st2[p[0] === 'tone' ? 'tone' : 'len'] = p[1];
+        return draw();
+      }
+      var MAP = {
+        open: 'prompt', close: 'blank', style: 'style', prompt: 'prompt',
+        typed: 'typed', create: 'writing', done: 'done', blank: 'blank',
+        'restyle-open': 'draft-style', edit: 'draft-edit', confirm: 'confirm'
+      };
+      if (MAP[a]) syncTo(MAP[a]);
+    });
+
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'ArrowRight') document.getElementById('next').click();
+      if (e.key === 'ArrowLeft') document.getElementById('prev').click();
+      if ((e.key === 'Enter' || e.key === ' ') && e.target && e.target.closest && e.target.closest('[data-act]')) {
+        e.preventDefault();
+        e.target.closest('[data-act]').click();
+      }
+    });
+
+    document.querySelectorAll('.opt').forEach(function (b) {
+      b.onclick = function () {
+        opt = +b.dataset.opt; idx = 0; st2.ex = 0; st2.v = 1; st2.view = 1; st2.rw = false; detour = null;
+        document.querySelectorAll('.opt').forEach(function (x) { x.classList.toggle('on', x === b); });
+        draw();
+      };
+    });
+
+    draw();
+
+  </script>
+</body>
+
+</html>
