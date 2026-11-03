@@ -217,7 +217,7 @@ var P = (function () {
       (o.busy ? '<span class="cx-spin"></span>' : ico('i-ai-write')) +
       '<span class="cx-text">' + (o.ph ? (o.focus ? CARET : '') + '<span class="ph">' + o.text + '</span>' : fmt(o.text) + (o.focus ? CARET : '')) + '</span>' +
       (o.count ? '<span class="cx-count">' + o.count + '</span>' : '') + send + '</div>' +
-      (o.close ? '<span class="cx-x" data-act="' + o.close + '">' + ico('i-close') + '</span>' : '') + '</div>';
+      (o.after || '') + (o.close ? '<span class="cx-x" data-act="' + o.close + '">' + ico('i-close') + '</span>' : '') + '</div>';
   }
 
   /* a Tone / Length chip; open shows its menu, picking a value fires set:key:value */
@@ -234,7 +234,7 @@ var P = (function () {
     if (n > 5) return '<div class="cx-meta">' + n + ' suggestions left</div>';
     return '<div class="cx-banner"><span class="up">' + ico('i-send-up') + '</span><span>' +
       (n ? n + ' suggestion' + (n === 1 ? '' : 's') + ' left. ' : 'You’ve used all your suggestions. ') +
-      '<b data-act="upgrade">Upgrade to get unlimited suggestions</b></span></div>';
+      '<b data-act="upgrade">Upgrade</b></span></div>';
   }
 
   function dock(inner, kbdUp) {
@@ -660,48 +660,242 @@ var P = (function () {
     }
   }
 
-  /* Mouse selection in the email: a drag, double- or triple-click gives a
-     selection; a plain click moves the caret. A single click waits a beat so
-     a double-click isn't cut short by the re-render. ok(st) says whether the
-     composer is the thing on screen. */
-  var lastUp = 0, pendingCaret = null;
+  /* Selecting text in the email — one engine for mouse and touch.
+
+     The browser's own selection is switched off on the email text: it fought
+     the prototype's highlight (two selections, a jump when one replaced the
+     other). Instead, while a finger or the mouse is down nothing is
+     re-rendered: the highlight and handles are drawn on a light overlay that
+     follows the pointer every frame, so the gesture never loses its target.
+     When the gesture ends the selection is committed to the state once, and
+     the real render looks exactly like the overlay did — no jump.
+
+       mouse   drag to select, double-click a word, triple-click a paragraph,
+               click to place the caret, drag either handle to adjust
+       touch   long-press a word (then keep dragging to extend), double-tap a
+               word, tap to place the caret, drag either handle to adjust;
+               a normal swipe still scrolls the email
+     Everything snaps to whole words, live, so what you see while dragging is
+     what you get. ok(st) says whether the composer is the thing on screen. */
+  var lastUp = 0;
   function selectable(api, ok) {
-    /* on a touch screen a long-press selection never sends mouseup: take it
-       once the user stops dragging the handles */
-    var settle = null;
-    document.addEventListener('selectionchange', function () {
-      clearTimeout(settle);
-      if (!window.matchMedia('(pointer: coarse)').matches) return;
-      var ns = window.getSelection();
-      if (!ns.rangeCount || ns.isCollapsed) return;
-      settle = setTimeout(function () { commit(true); }, 600);
-    });
-    document.getElementById('phone').addEventListener('mouseup', function () { commit(false); });
-    function commit(fromTouch) {
-      var st = api.state();
-      if (!ok(st)) return;
-      var host = document.querySelector('#phone .sel-text'), ns = window.getSelection();
-      if (!host || !ns.rangeCount) return;
-      var r = ns.getRangeAt(0);
-      if (!host.contains(r.startContainer) && r.startContainer !== host) return;
-      if (fromTouch && r.collapsed) return;
-      lastUp = Date.now();
-      var s = offsetOf(host, r.startContainer, r.startOffset), e = offsetOf(host, r.endContainer, r.endOffset);
-      clearTimeout(pendingCaret);
-      if (!r.collapsed && s != null) {
-        var sel = snap(st.body, s, e == null ? st.body.length : e);
-        ns.removeAllRanges();
-        st.sel = sel; st.flash = null; st.focus = 'body'; st.caret = sel ? null : s;
-        return api.render();
+    var phone = document.getElementById('phone');
+    var g = null;              /* the gesture in progress */
+    var lastTap = { t: 0, x: 0, y: 0 };
+    var WORD = /[\w'’]/;
+
+    function host() { return phone.querySelector('.sel-text'); }
+    function scale() { var p = phone.querySelector('.phone'); return p ? p.getBoundingClientRect().width / 402 : 1; }
+
+    /* screen point → offset in the body text */
+    function offAt(x, y) {
+      var h = host(); if (!h) return null;
+      var node = null, off = 0;
+      if (document.caretPositionFromPoint) {
+        var p = document.caretPositionFromPoint(x, y);
+        if (p) { node = p.offsetNode; off = p.offset; }
+      } else if (document.caretRangeFromPoint) {
+        var r = document.caretRangeFromPoint(x, y);
+        if (r) { node = r.startContainer; off = r.startOffset; }
       }
-      pendingCaret = setTimeout(function () {
-        if (window.getSelection().isCollapsed === false) return;
-        st.sel = null; st.flash = null; st.focus = 'body'; st.caret = s;
-        api.render();
-      }, 220);
+      if (node && h.contains(node)) {
+        var o = offsetOf(h, node, off);
+        if (o != null) return o;
+      }
+      /* off the text: above it is the start, below it the end */
+      var hr = h.getBoundingClientRect(), t = api.state().body;
+      if (y < hr.top) return 0;
+      if (y > hr.bottom) return t.length;
+      return null;
     }
+
+    /* offset in the body text → DOM point (inverse of offsetOf) */
+    function pointAt(h, o) {
+      var paras = h.querySelectorAll('.para'), para = paras[0];
+      for (var i = 0; i < paras.length; i++) if (+paras[i].dataset.o <= o) para = paras[i];
+      var left = o - +para.dataset.o;
+      var walk = document.createTreeWalker(para, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT), n, last = null;
+      while ((n = walk.nextNode())) {
+        if (n.nodeType === 1) {
+          if (n.tagName === 'BR') { if (left === 0) return { node: n.parentNode, off: Array.prototype.indexOf.call(n.parentNode.childNodes, n) }; left--; }
+          continue;
+        }
+        if (n.parentNode.closest('.hd, .sw-caret')) continue;
+        if (left <= n.length) return { node: n, off: left };
+        left -= n.length; last = n;
+      }
+      return last ? { node: last, off: last.length } : { node: para, off: para.childNodes.length };
+    }
+
+    function wordAt(t, o) {
+      var s = o, e = o;
+      if (!WORD.test(t[o] || '') && WORD.test(t[o - 1] || '')) s = e = o - 1;
+      if (!WORD.test(t[s] || '')) return null;
+      while (s > 0 && WORD.test(t[s - 1])) s--;
+      while (e < t.length && WORD.test(t[e])) e++;
+      return { s: s, e: e };
+    }
+    function paraAt(t, o) {
+      var s = t.lastIndexOf('\n\n', o - 1), e = t.indexOf('\n\n', o);
+      return snap(t, s < 0 ? 0 : s + 2, e < 0 ? t.length : e);
+    }
+
+    /* the overlay: highlight rects + both handles, drawn in phone pixels */
+    function draw(sel) {
+      var h = host(); if (!h) return;
+      var body = h.closest('.ios-body'), ov = body.querySelector('.sel-ov');
+      if (!ov) { ov = document.createElement('div'); ov.className = 'sel-ov'; body.insertBefore(ov, body.firstChild); }
+      if (!sel) { ov.innerHTML = ''; return; }
+      var k = scale(), br = body.getBoundingClientRect(), a = pointAt(h, sel.s), b = pointAt(h, sel.e);
+      var r = document.createRange();
+      try { r.setStart(a.node, a.off); r.setEnd(b.node, b.off); } catch (x) { return; }
+      var rects = Array.prototype.filter.call(r.getClientRects(), function (q) { return q.width > .5; });
+      if (!rects.length) { ov.innerHTML = ''; return; }
+      function px(q) { return { x: (q.left - br.left) / k, y: (q.top - br.top) / k, w: q.width / k, h: q.height / k }; }
+      var html = rects.map(function (q) {
+        q = px(q);
+        return '<i style="left:' + q.x + 'px;top:' + q.y + 'px;width:' + q.w + 'px;height:' + q.h + 'px"></i>';
+      }).join('');
+      var f = px(rects[0]), l = px(rects[rects.length - 1]);
+      html += '<span class="hd lead" style="left:' + f.x + 'px;top:' + f.y + 'px"><i></i><b></b></span>' +
+        '<span class="hd trail" style="left:' + (l.x + l.w) + 'px;top:' + l.y + 'px"><i></i><b></b></span>';
+      ov.innerHTML = html;
+    }
+
+    function live(on) { phone.classList.toggle('sel-live', on); if (!on) draw(null); }
+
+    /* keep the end being dragged in view */
+    function edgeScroll(y) {
+      var f = phone.querySelector('.ios-fields'); if (!f) return;
+      var r = f.getBoundingClientRect(), k = scale();
+      if (y < r.top + 40 * k) f.scrollTop -= 8;
+      else if (y > r.bottom - 40 * k) f.scrollTop += 8;
+    }
+
+    /* where the finger is → the new selection, by gesture */
+    function update(x, y) {
+      var t = api.state().body, o = offAt(x, y + (g.dy || 0));
+      if (o == null) return;
+      if (g.kind === 'lead' || g.kind === 'trail') {
+        var fixed = g.kind === 'lead' ? g.sel.e : g.sel.s;
+        var a = Math.min(o, fixed), b = Math.max(o, fixed);
+        g.cur = snap(t, a, b) || g.cur;
+      } else {             /* dragging out from an anchor (mouse drag, long-press drag) */
+        var w = g.word || { s: g.anchor, e: g.anchor };
+        g.cur = snap(t, Math.min(w.s, o), Math.max(w.e, o)) || g.cur;
+      }
+      draw(g.cur);
+      edgeScroll(y);
+    }
+
+    function commit(sel, caret) {
+      var st = api.state();
+      lastUp = Date.now();
+      live(false);
+      st.flash = null; st.focus = 'body';
+      if (sel) { st.sel = sel; st.caret = null; }
+      else { st.sel = null; st.caret = caret; }
+      api.render();
+    }
+
+    function startHandle(which, x, y) {
+      var st = api.state(), hd = phone.querySelector('.ios-body .hd.' + which + ' i');
+      var mid = hd ? hd.getBoundingClientRect() : null;
+      g = { kind: which, sel: { s: st.sel.s, e: st.sel.e }, cur: st.sel, dy: mid ? (mid.top + mid.height / 2) - y : 0 };
+      live(true); draw(g.cur);
+    }
+
+    /* ── mouse ─────────────────────────────────────────────────────── */
+    phone.addEventListener('mousedown', function (e) {
+      if (e.button !== 0 || !ok(api.state())) return;
+      var hd = e.target.closest('.ios-body .hd');
+      if (hd && api.state().sel) { e.preventDefault(); return startHandle(hd.classList.contains('lead') ? 'lead' : 'trail', e.clientX, e.clientY); }
+      if (!e.target.closest('.sel-text')) return;
+      e.preventDefault();
+      var t = api.state().body, o = offAt(e.clientX, e.clientY);
+      if (o == null) return;
+      if (e.detail === 2 || e.detail >= 3) {
+        var sel = e.detail === 2 ? wordAt(t, o) : paraAt(t, o);
+        if (sel) { g = { kind: 'click-sel', cur: sel, x: e.clientX, y: e.clientY }; live(true); draw(sel); }
+        return;
+      }
+      g = { kind: 'mouse', anchor: o, cur: null, x: e.clientX, y: e.clientY, moved: false };
+    });
+    window.addEventListener('mousemove', function (e) {
+      if (!g || g.touch) return;
+      if (g.kind === 'mouse' && !g.moved) {
+        if (Math.abs(e.clientX - g.x) + Math.abs(e.clientY - g.y) < 4) return;
+        g.moved = true; live(true);
+      }
+      if (g.kind === 'click-sel') return;
+      update(e.clientX, e.clientY);
+    });
+    window.addEventListener('mouseup', function () {
+      if (!g || g.touch) return;
+      var d = g; g = null;
+      if (d.kind === 'mouse' && !d.moved) return commit(null, d.anchor);
+      commit(d.cur || null, d.cur ? null : d.anchor);
+    });
+
+    /* ── touch ─────────────────────────────────────────────────────── */
+    phone.addEventListener('touchstart', function (e) {
+      if (e.touches.length !== 1 || !ok(api.state())) { cancelTouch(); return; }
+      var p = e.touches[0], hd = e.target.closest('.ios-body .hd');
+      if (hd && api.state().sel) {
+        e.preventDefault();
+        startHandle(hd.classList.contains('lead') ? 'lead' : 'trail', p.clientX, p.clientY);
+        g.touch = true;
+        return;
+      }
+      if (!e.target.closest('.sel-text')) return;
+      g = { kind: 'press', touch: true, x: p.clientX, y: p.clientY, moved: false };
+      g.timer = setTimeout(function () {             /* long-press: select the word under the finger */
+        if (!g || g.kind !== 'press') return;
+        var t = api.state().body, o = offAt(g.x, g.y), w = o == null ? null : (wordAt(t, o) || snap(t, Math.max(0, o - 1), Math.min(t.length, o + 1)));
+        if (!w) { g = null; return; }
+        g.kind = 'extend'; g.word = w; g.cur = w; g.dy = -Math.round(18 * scale());  /* read just above the fingertip */
+        if (navigator.vibrate) try { navigator.vibrate(8); } catch (x) {}
+        live(true); draw(w);
+      }, 420);
+    }, { passive: false });
+
+    phone.addEventListener('touchmove', function (e) {
+      if (!g || !g.touch) return;
+      var p = e.touches[0];
+      if (g.kind === 'press') {                       /* moving before the long-press fires is a scroll */
+        if (Math.abs(p.clientX - g.x) + Math.abs(p.clientY - g.y) > 10) { clearTimeout(g.timer); g = null; }
+        return;
+      }
+      e.preventDefault();
+      update(p.clientX, p.clientY);
+    }, { passive: false });
+
+    phone.addEventListener('touchend', function (e) {
+      if (!g || !g.touch) return;
+      var d = g; g = null; clearTimeout(d.timer);
+      if (d.kind === 'press') {                       /* a tap: caret, or a word on double-tap */
+        var now = Date.now(), t = api.state().body, o = offAt(d.x, d.y);
+        if (o == null) return;
+        var dbl = now - lastTap.t < 320 && Math.abs(d.x - lastTap.x) + Math.abs(d.y - lastTap.y) < 30;
+        lastTap = dbl ? { t: 0, x: 0, y: 0 } : { t: now, x: d.x, y: d.y };
+        e.preventDefault();                           /* no synthetic click: the tap is handled here */
+        var w = dbl ? wordAt(t, o) : null;
+        return w ? commit(w) : commit(null, o);
+      }
+      e.preventDefault();
+      commit(d.cur || null, d.cur ? null : 0);
+    }, { passive: false });
+
+    function cancelTouch() { if (g && g.touch) { clearTimeout(g.timer); g = null; live(false); } }
+    phone.addEventListener('touchcancel', function () {
+      if (!g || !g.touch) return;
+      var d = g; cancelTouch();
+      if (d.cur && d.kind !== 'press') commit(d.cur);
+    });
+    /* no browser context menu on a long-press in the email */
+    phone.addEventListener('contextmenu', function (e) { if (e.target.closest('.sel-text, .hd')) e.preventDefault(); });
   }
-  /* the click that follows a text mouseup is already handled */
+  /* the click that follows a handled mouse/touch gesture is already handled */
   function tappedText() { return Date.now() - lastUp < 400; }
 
   /* the review card for a refine: the selection on top, the rewrite below */
@@ -783,7 +977,7 @@ var P = (function () {
     function f() {
       var s;
       if (window.innerWidth <= 600) {   /* on a phone: fill the screen under the option bar */
-        var nav = document.querySelector('.panel'), h = window.innerHeight - (nav ? nav.offsetHeight : 0);
+        var nav = document.querySelector('.panel'), h = window.innerHeight - (nav ? nav.offsetHeight : 0) - 16;   /* breathing room above the screen edge */
         s = Math.min(window.innerWidth / 402, h / 874);
         return wrap.style.setProperty('--s', s.toFixed(4));
       }
