@@ -2266,3 +2266,8 @@ svg.icon.ai-ico {
 .ds-sheet.drag .sw-head .ds-insert { cursor: pointer; }
 .ds-sheet.snap { transition: height .22s cubic-bezier(.2, .8, .2, 1); }
 @media (prefers-reduced-motion: reduce) { .ds-sheet.snap { transition: none; } }
+
+/* while typing in the email, leave room under the last line so it never sits against the bar or keyboard */
+.ios-fields[data-pin="typing"] .ios-body { padding-bottom: 28px; }
+/* the fields scroll as one column: nothing in it squeezes to fit (a squeezed body let text spill under the keyboard) */
+.ios-fields > * { flex-shrink: 0; }

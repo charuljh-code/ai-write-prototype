@@ -94,7 +94,7 @@
       var o = { subject: st.subject, toast: st.toast, bar: null, bodyHtml: bodyHtml(st) };
       var over = st.confirm ? P.confirmSheet('discard', 'keep', refining(st) ? P.sel.CONFIRM : null) : '';
       if (st.mode === 'compose') {
-        o.focus = st.focus === 'subject' ? 'subject' : null; o.kbd = !!st.focus;
+        o.focus = st.focus === 'subject' ? 'subject' : null; o.kbd = !!st.focus; o.typing = st.focus === 'body';
         o.bar = st.sel ? P.sel.pill('refine-open') : P.COMPOSE_ROW('open');
         o.over = P.sel.menu(st);
         return P.shell(o);

@@ -235,7 +235,7 @@ var P = (function () {
   function shell(o) {
     var kbdOn = !!o.kbd, hasBar = o.bar != null;
     var bottom = o.fieldsBottom != null ? o.fieldsBottom : kbdOn ? 336 + (hasBar ? 52 : 0) : (hasBar ? 86 : 0);
-    var pin = o.pin ? 'end' : o.focus === 'body' || o.focus === 'subject' ? 'typing' : '';
+    var pin = o.pin ? 'end' : o.focus === 'body' || o.focus === 'subject' || o.typing ? 'typing' : '';
     return '<div class="phone ios">' +
       '<div class="ios-top">' +
       '<div class="ios-status"><span class="ios-time">9:41</span><span class="ios-statusicons">' +
@@ -1235,8 +1235,16 @@ var P = (function () {
     root.innerHTML = html;
     root.querySelectorAll('[data-scroll]').forEach(function (n) {
       var pin = n.dataset.pin;
-      if (pin === 'end' || (pin === 'typing' && kb.typed)) n.scrollTop = n.scrollHeight;
-      else if (n.dataset.scroll in keep) n.scrollTop = keep[n.dataset.scroll];
+      if (n.dataset.scroll in keep) n.scrollTop = keep[n.dataset.scroll];
+      if (pin === 'end') n.scrollTop = n.scrollHeight;
+      else if (pin === 'typing' && kb.typed) {
+        /* keep what you're typing in view: scroll just enough to show the caret above the keyboard / bar */
+        var c = n.querySelector('.sw-caret');
+        if (!c) { n.scrollTop = n.scrollHeight; return; }
+        var nr = n.getBoundingClientRect(), cr = c.getBoundingClientRect(), k = nr.width / n.offsetWidth || 1, pad = 16 * k;
+        if (cr.bottom > nr.bottom - pad) n.scrollTop += (cr.bottom - nr.bottom + pad) / k;
+        else if (cr.top < nr.top + pad) n.scrollTop -= (nr.top + pad - cr.top) / k;
+      }
     });
     kb.typed = false;
   }
