@@ -3,8 +3,8 @@
 
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <title>Dedicated bottom sheet</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover,interactive-widget=overlays-content">
+  <title>Option 2</title>
   <link rel="stylesheet" href="proto.css">
 </head>
 
@@ -12,8 +12,8 @@
 
   <aside class="panel">
     <nav class="others">
-      <a href="proto-2-chat.html"><span class="n">1</span>Replacing content directly (like web)</a>
-      <a class="on" href="proto-3-draft-sheet.html"><span class="n">2</span>Dedicated bottom sheet</a>
+      <a href="proto-2-chat.html"><span class="n">1</span>Option 1</a>
+      <a class="on" href="proto-3-draft-sheet.html"><span class="n">2</span>Option 2</a>
     </nav>
   </aside>
 
@@ -21,6 +21,7 @@
     <div class="device" id="phone"></div>
   </div>
 
+  <script src="words.js"></script>
   <script src="proto.js"></script>
   <script>
     /* ══════════════════════════════════════════════════════════════════════
@@ -88,7 +89,7 @@
       if (st.mode === 'compose') {
         o.focus = st.focus === 'subject' ? 'subject' : null; o.kbd = !!st.focus;
         o.bar = st.sel ? P.sel.pill('refine-open') : P.COMPOSE_ROW('open');
-        o.over = st.sel ? P.sel.MENU : '';
+        o.over = P.sel.menu(st);
         return P.shell(o);
       }
       switch (st.phase) {
@@ -192,7 +193,9 @@
           return api.render();
         case 'go':
           if (!st.prompt.trim()) return;
-          return gen(st, api, refining(st) ? P.ai.refineSel(P.ai.selParams(), st.prompt.trim()) : P.ai.params(st.prompt.trim()), true);
+          /* a short note already in the email ("Vendor quotes") is context for the draft, and the draft takes its place */
+          return gen(st, api, refining(st) ? P.ai.refineSel(P.ai.selParams(), st.prompt.trim())
+            : P.ai.params(st.prompt.trim(), null, null, P.ai.isNote(st.body) ? st.body.trim() : ''), true);
         case 'close':     /* the prompt alone is cheap to lose; a draft asks first */
           if (st.phase === 'prompt') { toCompose(st); return api.render(); }
           if (st.phase === 'gen' && !st.hist.length) { stop(st, api); toCompose(st); return api.render(); }
@@ -249,7 +252,8 @@
             st.rf = null;
           } else {
             if (!st.subject.trim()) st.subject = v.subject;
-            st.body = st.body.trim() ? st.body.replace(/\s+$/, '') + '\n\n' : '';
+            var note = v.params && v.params.context && st.body.trim() === v.params.context;   /* the note it was written from */
+            st.body = st.body.trim() && !note ? st.body.replace(/\s+$/, '') + '\n\n' : '';
             s = st.body.length; st.body += v.text;
           }
           e = s + v.text.length;

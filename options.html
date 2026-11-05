@@ -2114,8 +2114,8 @@
     <p>iOS prototype on the composer from <a href="index.html">index.html</a>.
       Step through with Prev / Next, or tap inside the screen. Switch direction at bottom left.<br>
       Full prototypes, with real typing and live drafts:
-      <a href="proto-2-chat.html">1 · Replacing content directly (like web)</a> ·
-      <a href="proto-3-draft-sheet.html">2 · Dedicated bottom sheet</a></p>
+      <a href="proto-2-chat.html">Option 1</a> ·
+      <a href="proto-3-draft-sheet.html">Option 2</a></p>
   </div>
 
   <div id="view"></div>
@@ -2123,9 +2123,9 @@
   <nav class="switcher">
     <h4>Direction</h4>
     <button class="opt on" data-opt="2"><span class="n">1</span>
-      <span><b>Replacing content directly (like web)</b><span>Web flow, made for mobile. Prompt, then keep refining in one dock.</span></span></button>
+      <span><b>Option 1</b><span>Web flow, made for mobile. Prompt, then keep refining in one dock.</span></span></button>
     <button class="opt" data-opt="3"><span class="n">2</span>
-      <span><b>Dedicated bottom sheet</b><span>Prompt from chat, draft reviewed in the bottom sheet.</span></span></button>
+      <span><b>Option 2</b><span>Prompt from chat, draft reviewed in the bottom sheet.</span></span></button>
   </nav>
 
   <script>
@@ -2649,7 +2649,7 @@
       },
       2: {
         key: 'chat',
-        name: 'Replacing content directly (like web)',
+        name: 'Option 1',
         render: o3frame,
         steps: [
           ['c-blank', 'Blank draft', 'Same entry as everywhere else: AI Write is one of the usual chips above the keyboard.'],
@@ -2666,7 +2666,7 @@
       },
       3: {
         key: 'draft-sheet',
-        name: 'Dedicated bottom sheet',
+        name: 'Option 2',
         render: o3sheetFrame,
         steps: [
           ['s-blank', 'Blank draft', 'AI Write starts as one of the usual compose actions.'],

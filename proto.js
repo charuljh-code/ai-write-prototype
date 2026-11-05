@@ -47,12 +47,89 @@ var P = (function () {
 
   /* The app hands over a target for whatever is focused:
      { get, set, multiline?, enter?, enterLabel?, sugs? } — or null. */
-  var kb = { shift: false, target: null, changed: null, escape: null, typed: false };
+  var kb = { shift: false, target: null, changed: null, escape: null, typed: false, layer: 'abc', pressed: null, keep: false };
   var DICT = ('the to and a about with your you we our for this that team meeting email invite invitation thank thanks ' +
     'next week weekend tomorrow today please update project webinar workshop client clients customer customers discount ' +
     'follow friendly friendlier shorter longer formal casual mention recording add make more less warmer bullet points ' +
     'deadline dinner lunch quarterly report review reminder schedule call proposal offer health fitness design saturday ' +
     'friday monday launch campaign budget feedback interview welcome').split(' ');
+
+  /* ── autocorrect: a frequency-ranked word list (words.js) + iOS-style
+     correction on space. Shared with the fake model, which fixes typos in
+     prompts and selections the same way. ─────────────────────────────── */
+  var RANK = {};
+  (typeof WORDS !== 'undefined' ? WORDS : DICT).forEach(function (w, i) { if (!(w in RANK)) RANK[w] = i; });
+  DICT.forEach(function (w) { if (!(w in RANK)) RANK[w] = 5000; });
+  /* shorthand and apostrophe-less contractions people type on phones */
+  var SHORT = { eml: 'email', amail: 'email', emal: 'email', mai: 'mail', emial: 'email', emai: 'email', mial: 'mail', pls: 'please', plz: 'please', thx: 'thanks',
+    thnx: 'thanks', tnx: 'thanks', ty: 'thank you', u: 'you', ur: 'your', abt: 'about', msg: 'message', wd: 'would',
+    shd: 'should', cud: 'could', reqd: 'required', req: 'request', info: 'info', bcoz: 'because', bcz: 'because', coz: 'because',
+    dont: "don't", cant: "can't", wont: "won't", didnt: "didn't", doesnt: "doesn't", isnt: "isn't", wasnt: "wasn't", arent: "aren't",
+    couldnt: "couldn't", shouldnt: "shouldn't", wouldnt: "wouldn't", havent: "haven't", hasnt: "hasn't", im: "I'm", ive: "I've",
+    ill: null, id: null, youre: "you're", theyre: "they're", thats: "that's", whats: "what's", theres: "there's", lets: null,
+    i: 'I', teh: 'the', adn: 'and', tommorow: 'tomorrow', tomorow: 'tomorrow', recieve: 'receive', definately: 'definitely',
+    seperate: 'separate', untill: 'until', alot: 'a lot', occured: 'occurred', accomodate: 'accommodate', wich: 'which',
+    quotaion: 'quotation', quatation: 'quotation', qoute: 'quote', qoutes: 'quotes', venders: 'vendors', vender: 'vendor',
+    diwalli: 'diwali', deewali: 'diwali', divali: 'diwali', regds: 'regards', rgds: 'regards' };
+  var AZ = 'abcdefghijklmnopqrstuvwxyz';
+  function edits1(w) {
+    var out = [];
+    for (var i = 0; i <= w.length; i++) {
+      var a = w.slice(0, i), b = w.slice(i);
+      if (b) out.push(a + b.slice(1));                                   /* delete */
+      if (b.length > 1) out.push(a + b[1] + b[0] + b.slice(2));          /* swap */
+      for (var j = 0; j < 26; j++) {
+        if (b) out.push(a + AZ[j] + b.slice(1));                         /* replace */
+        out.push(a + AZ[j] + b);                                         /* insert */
+      }
+    }
+    return out;
+  }
+  function best(cands) {
+    var top = null;
+    cands.forEach(function (c) { if (c in RANK && (top === null || RANK[c] < RANK[top])) top = c; });
+    return top;
+  }
+  function keepCase(orig, w) {
+    if (orig.length > 1 && orig === orig.toUpperCase()) return w.toUpperCase();
+    return orig[0] !== orig[0].toLowerCase() ? cap(w) : w;
+  }
+  /* the corrected word, or null when it looks fine (deep: also try two edits) */
+  var fixCache = {};
+  function correct(word, deep) {
+    var lo = word.toLowerCase(), key = lo + (deep ? '+' : '');
+    if (!/^[a-z]+$/.test(lo)) return null;
+    if (key in fixCache) return fixCache[key] === null ? null : keepCase(word, fixCache[key]);
+    var r = null;
+    if (lo in SHORT) r = SHORT[lo];
+    else if (/^(monday|tuesday|wednesday|thursday|friday|saturday|sunday|january|february|april|june|july|august|september|october|november|december|diwali|holi|christmas|navratri|dussehra)$/.test(lo)) r = word[0] === word[0].toLowerCase() ? cap(lo) : null;
+    else if (lo.length >= 3 && !(lo in RANK)) {
+      var e1 = edits1(lo);
+      r = best(e1.filter(function (c) { return c.length >= 3; }));
+      if (!r && deep && lo.length >= 6) {
+        var seen = {}, e2 = [];
+        e1.forEach(function (c) { edits1(c).forEach(function (d) { if (!seen[d] && d.length >= 5) { seen[d] = 1; e2.push(d); } }); });
+        r = best(e2);
+      }
+    }
+    else if (lo.length >= 5 && RANK[lo] > 15000) {   /* a rare "word" one letter away from a common one is a typo too */
+      var c1 = best(edits1(lo));
+      if (c1 && RANK[c1] < 3000) r = c1;
+    }
+    fixCache[key] = r;
+    if (r === null) return null;
+    if (r === 'I' || /^I'/.test(r)) return r;
+    return keepCase(word, r);
+  }
+  /* every word in a piece of text; a capitalised word mid-sentence is a name and stays */
+  function fixTypos(t) {
+    return String(t).replace(/(^|[^A-Za-z'’])([A-Za-z]+)(?![A-Za-z'’])/g, function (m, pre, w, at, all) {
+      var startOfSentence = /(^|[.!?]\s*|\n\s*)$/.test(all.slice(0, at + pre.length));
+      if (w[0] !== w[0].toLowerCase() && !startOfSentence && w.length > 1) return m;
+      var c = correct(w, true);
+      return pre + (c || w);
+    });
+  }
 
   function target() { return kb.target ? kb.target() : null; }
   function edit(fn) {
@@ -65,6 +142,14 @@ var P = (function () {
     edit(function (v) {
       if (onScreen && /^[a-z]$/.test(s) && (kb.shift || !v || /([.!?]\s|\n)$/.test(v))) s = s.toUpperCase();
       if (onScreen) kb.shift = false;
+      /* a word ends: fix it like iOS does (the on-screen keyboard only — pasting / your own keyboard is left alone) */
+      if (onScreen && /^[\s.,!?;:]$/.test(s)) {
+        var p = partial(v), c = p && !kb.keep ? correct(p, true) : null;
+        if (c && c !== p) v = v.slice(0, v.length - p.length) + c;
+        /* double space → ". " */
+        if (s === ' ' && / $/.test(v) && /[A-Za-z0-9]$/.test(v.slice(0, -1))) return v.slice(0, -1) + '. ';
+      }
+      kb.keep = false;
       return v + s;
     });
   }
@@ -79,39 +164,49 @@ var P = (function () {
     if (t.enter) t.enter(); else if (t.multiline) insert('\n');
   }
   function partial(v) { var m = /[A-Za-z']+$/.exec(v || ''); return m ? m[0] : ''; }
+  /* iOS order: what you typed (in quotes) · the correction or best guess · another completion */
   function suggestions(t) {
     if (!t) return ['', '', ''];
     var p = partial(t.get());
     if (!p) return (t.sugs || ['I', 'The', 'We']).slice(0, 3);
-    var lo = p.toLowerCase(), out = ['“' + p + '”'];
-    DICT.forEach(function (w) { if (out.length < 3 && w.indexOf(lo) === 0 && w !== lo) out.push(w); });
+    var lo = p.toLowerCase(), out = ['“' + p + '”'], fix = kb.keep ? null : correct(p);
+    if (fix && fix !== p) out.push(fix);
+    DICT.concat(typeof WORDS !== 'undefined' ? WORDS.slice(0, 3000) : []).forEach(function (w) {
+      if (out.length < 3 && w.length > lo.length && w.indexOf(lo) === 0 && out.indexOf(w) < 0) out.push(w);
+    });
     while (out.length < 3) out.push('');
     return out;
   }
   function pick(word) {
     edit(function (v) {
       var p = partial(v), w = word.replace(/[“”]/g, '');
-      if (p && p[0] !== p[0].toLowerCase()) w = cap(w);
+      kb.keep = false;
+      if (p && p[0] !== p[0].toLowerCase() && w !== 'I' && !/^I'/.test(w)) w = cap(w);
       if (!p && v && !/\s$/.test(v)) v += ' ';
       return v.slice(0, v.length - p.length) + w + ' ';
     });
   }
 
   function kbd() {
-    var t = target(), up = kb.shift;
-    function key(c) { return '<div class="key" data-key="' + c + '">' + (up ? c.toUpperCase() : c) + '</div>'; }
+    var t = target(), up = kb.shift, num = kb.layer === '123';
+    function key(c) {
+      return '<div class="key' + (kb.pressed === c ? ' pr' : '') + '" data-key="' + esc(c) + '">' + esc(up && !num ? c.toUpperCase() : c) + '</div>';
+    }
     function row(chars, inset, top) {
       return '<div class="krow" style="left:' + inset + 'px;right:' + inset + 'px;top:' + top + 'px">' + chars.split('').map(key).join('') + '</div>';
     }
+    function pr(c) { return kb.pressed === c ? ' pr' : ''; }
     return '<div class="ios-kbd"><div class="ios-acc">' + suggestions(t).map(function (w, i) {
       return (i ? '<div class="sep"></div>' : '') + '<div class="sug"' + (w ? ' data-sug="' + esc(w) + '"' : '') + '>' + esc(w) + '</div>';
     }).join('') + '</div><div class="ios-spacer"></div><div class="ios-layout">' +
-      row('qwertyuiop', 3.06, 0) + row('asdfghjkl', 23.52, 54) + row('zxcvbnm', 63.44, 108) +
-      '<div class="key sp abs' + (up ? ' on' : '') + '" data-key="shift" style="left:3.06px;width:45.02px;top:108px"><svg class="icon" width="20" height="20"><use href="#i-shift"/></svg></div>' +
-      '<div class="key sp abs" data-key="del" style="left:353.92px;width:45.02px;top:108px"><svg class="icon" width="22" height="22"><use href="#i-del"/></svg></div>' +
-      '<div class="key sp abs" style="left:3.06px;width:94.1px;top:162px">123</div>' +
-      '<div class="key abs space" data-key="space" style="left:103.31px;width:195.38px;top:162px">space</div>' +
-      '<div class="key sp abs' + (t && t.enterLabel ? ' go' : '') + '" data-key="enter" style="left:304.84px;width:94.1px;top:162px">' +
+      (num ? row('1234567890', 3.06, 0) + row('-/:;()₹&@"', 3.06, 54) + row(".,?!'", 63.44, 108)
+        : row('qwertyuiop', 3.06, 0) + row('asdfghjkl', 23.52, 54) + row('zxcvbnm', 63.44, 108)) +
+      (num ? '<div class="key sp abs" style="left:3.06px;width:45.02px;top:108px;font-size:15px">#+=</div>'
+        : '<div class="key sp abs' + (up ? ' on' : '') + pr('shift') + '" data-key="shift" style="left:3.06px;width:45.02px;top:108px"><svg class="icon" width="20" height="20"><use href="#i-shift"/></svg></div>') +
+      '<div class="key sp abs' + pr('del') + '" data-key="del" style="left:353.92px;width:45.02px;top:108px"><svg class="icon" width="22" height="22"><use href="#i-del"/></svg></div>' +
+      '<div class="key sp abs' + pr('layer') + '" data-key="layer" style="left:3.06px;width:94.1px;top:162px">' + (num ? 'ABC' : '123') + '</div>' +
+      '<div class="key abs space' + pr('space') + '" data-key="space" style="left:103.31px;width:195.38px;top:162px">space</div>' +
+      '<div class="key sp abs' + (t && t.enterLabel ? ' go' : '') + pr('enter') + '" data-key="enter" style="left:304.84px;width:94.1px;top:162px">' +
       (t && t.enterLabel || 'return') + '</div></div>' +
       '<div class="ios-emoji"><svg class="icon" width="24" height="24"><use href="#i-emoji"/></svg>' +
       '<svg class="icon" width="20" height="20"><use href="#i-mic"/></svg></div><div class="home-ind"></div></div>';
@@ -176,7 +271,9 @@ var P = (function () {
 
   function toastHtml(t) {
     if (!t) return '';
-    return '<div class="toast"' + (t.top ? ' style="top:' + t.top + 'px"' : '') + '>' + ico('i-check') + esc(t.msg) +
+    /* positions past the middle were laid out on an 874-tall phone: keep their distance from the bottom */
+    var top = !t.top ? '' : t.top > 437 ? 'calc(var(--ph, 874px) - ' + (874 - t.top) + 'px)' : t.top + 'px';
+    return '<div class="toast"' + (top ? ' style="top:' + top + '"' : '') + '>' + ico('i-check') + esc(t.msg) +
       (t.act ? '<b data-act="' + t.act + '">' + (t.label || 'Undo') + '</b>' : '') + '</div>';
   }
 
@@ -311,54 +408,236 @@ var P = (function () {
     Friendly: { hi: 'Hi {n}!', open: ["Hope you're having a great week! ", 'I hope all is well! ', 'Hope your week is off to a good start! '], close: 'Thanks so much,' }
   };
 
-  var VERB = /^(invite|ask|tell|remind|thank|let|request|share|announce|update|introduce|confirm|apologi[sz]e|welcome|congratulate|schedule|offer|propose|decline|accept|cancel|reschedule|explain|recommend|suggest)\b/i;
+  var VERB = /^(invite|ask|tell|remind|thank|let|request|share|announce|update|introduce|confirm|apologi[sz]e|welcome|congratulate|schedule|offer|propose|decline|accept|cancel|reschedule|explain|recommend|suggest|inform|notify|check|follow|submit|send|approve|book|arrange|collect|order)\b/i;
 
   function nameFor(p) { return /\b(team|everyone|all of us|the group)\b/i.test(p) ? 'team' : 'Jim'; }
   function nameRe(name) { return name === 'team' ? /\b(?:my|our|the)\s+team\b/gi : /\bJim(?: Halpert)?\b/g; }
 
-  /* "Write an email to my team about X" → "X" */
-  function topic(p) {
-    var t = p.trim().replace(/[.!?]+$/, '');
-    t = t.replace(/^(please\s+)?(can you\s+)?(help me\s+)?(write|draft|compose|send|create)\s+(me\s+)?(an?\s+)?((short|quick|brief|polite|friendly)\s+)?(e-?mail|note|message|reply)?\s*/i, '');
-    t = t.replace(/^(to\s+(?:my\s+)?\w+\s+)?(about|regarding|on|for|that)\s+/i, '');
-    return t;
+  /* common non-native phrasings, fixed wherever text passes through the model */
+  var PHRASES = [[/\brequest(ing|ed|s)? for (quotes?|quotations?|pricing|prices|rates|estimates?|approval|leave|information|details)\b/gi, 'request$1 $2'],
+    [/\bdiscuss(ed|ing)? about\b/gi, 'discuss$1'], [/\brevert back\b/gi, 'get back'], [/\breply back\b/gi, 'reply'],
+    [/\bdo the needful\b/gi, 'take care of this'], [/\bpre-?pone(d)?\b/gi, 'move$1 earlier'], [/\bkindly\b/gi, 'please'],
+    [/\bquotees\b/gi, 'quotes'], [/\ban? (e-?mail|mail) draft\b/gi, 'an email']];
+  var CAPW = new RegExp('\\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday|january|february|march|april|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sep|sept|oct|nov|dec)\\b', 'g');
+  function phrases(t) {
+    PHRASES.forEach(function (p) {
+      var one = new RegExp(p[0].source, p[0].flags.replace('g', ''));
+      t = t.replace(p[0], function (m) { var r = m.replace(one, p[1]); return m[0] !== m[0].toLowerCase() ? cap(r) : r; });
+    });
+    return t.replace(CAPW, function (m) { return cap(m); }).replace(/\b(diwali|holi|christmas|navratri|dussehra|onam|pongal|eid)\b/g, function (m) { return cap(m); });
   }
 
-  function scene(p, name) {
-    for (var i = 0; i < SCENES.length; i++) if (SCENES[i].re.test(p)) return SCENES[i];
+  /* "Can you write me a short email to my team about X" → "X". The wrapper
+     words are the request for an email, not what the email is about. */
+  var MAILW = '(?:e-?mails?|mails?|messages?|notes?|letters?|repl(?:y|ies)|drafts?)';
+  function topic(p) {
+    var t = p.trim().replace(/\s+/g, ' ').replace(/[.!?]+$/, '');
+    t = t.replace(/^(hi|hey|hello)[,!.]?\s+/i, '');
+    for (var i = 0; i < 3; i++) {
+      t = t.replace(/^(please\s+|pls\s+)?(can|could|would|will)\s+you\s+(please\s+)?/i, '')
+        .replace(/^(please|kindly)\s+/i, '')
+        .replace(/^help\s+me\s+(to\s+)?/i, '')
+        .replace(/^(give|get|make)\s+me\s+/i, '')
+        .replace(new RegExp('^(?:i\\s+(?:need|want|would like|\'d like|have)\\s+(?:you\\s+)?(?:to\\s+)?)?(?:write|draft|compose|create|prepare|make|send|generate|need)?\\s*(?:me\\s+)?(?:an?\\s+|the\\s+)?(?:(?:short|quick|brief|polite|formal|professional|friendly|proper|nice|good|simple|detailed)\\s+)*' + MAILW + '(?:\\s+' + MAILW + ')?\\s*', 'i'), '')
+        .replace(/^(?:i\s+(?:need|want)\s+to\s+)?(?:write|draft|compose)\s+/i, '');
+    }
+    t = t.replace(new RegExp('\\s+(?:as|in|into)\\s+(?:an?\\s+)?' + MAILW + '(?:\\s+(?:draft|format))?$', 'i'), '');
+    t = t.replace(/^(to\s+(?:my\s+|the\s+|our\s+|a\s+)?\w+\s+)?(about|regarding|on|for|that|re:?)\s+/i, '');
+    return t.trim();
+  }
+
+  var OCC = /\b(diwali|deepavali|holi|christmas|new year|eid|navratri|dussehra|onam|pongal|rakhi|festive season|year[- ]end)\b/i;
+  var DAY = '(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)';
+  var MON = '(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*';
+  function titleCase(w) { return w.replace(/\b[a-z]/g, function (c) { return c.toUpperCase(); }); }
+  /* the details a prompt carries, wherever they appear in it */
+  function slots(p) {
+    var o = {}, m;
+    if ((m = OCC.exec(p))) o.occasion = titleCase(m[1].toLowerCase());
+    m = /\b(?:quotes?|quotations?|pricing|prices?|rates?|estimates?)\s+(?:for|on|of)\s+(?:the\s+|our\s+|some\s+)?(.+?)(?=\s+(?:from|to|by|before|within|asap|for\s+(?:our|the|this))\b|[.,;!?]|$)/i.exec(p) ||
+      /\b(?:for|of|order(?:ing)?|buy(?:ing)?|source|sourcing|purchas(?:e|ing))\s+(?:the\s+|our\s+|some\s+)?((?:[\w-]+\s+){0,3}(?:products?|items?|hampers?|gifts?|supplies|materials?|equipment|services?|chairs?|laptops?|furniture|stationery|uniforms?|boxes|sweets|decorations?|lights?|lamps?|diyas?|t-?shirts?|merchandise|goodies))\b/i.exec(p);
+    if (m) {
+      var it = m[1].replace(/\s+(?:from|to)\s+(?:the\s+|our\s+|a\s+)?(?:vendors?|suppliers?)$/i, '').trim();
+      if (OCC.test(it)) it = it.replace(OCC, function (x) { return titleCase(x.toLowerCase()); });
+      if (it && !(o.occasion && it.toLowerCase() === o.occasion.toLowerCase()) && it.split(' ').length <= 6) o.items = it;
+    }
+    if ((m = new RegExp('\\b(?:by|before|until|till|no later than)\\s+((?:this|next)\\s+' + DAY + '|' + DAY + '|tomorrow|tonight|today|(?:the\\s+)?end of (?:the |this |next )?(?:day|week|month)|eod|eow|\\d{1,2}(?:st|nd|rd|th)?(?:\\s+' + MON + ')?|' + MON + '\\s+\\d{1,2}(?:st|nd|rd|th)?)', 'i').exec(p))) o.deadline = m[1].replace(/^eod$/i, 'end of day').replace(/^eow$/i, 'end of the week');
+    if ((m = new RegExp('\\b((?:from|between)\\s+\\d{1,2}(?:st|nd|rd|th)?(?:\\s+' + MON + ')?\\s+(?:to|till|until|and|-)\\s+\\d{1,2}(?:st|nd|rd|th)?(?:\\s+' + MON + ')?|(?:on\\s+)?(?:this|next)\\s+(?:week|month|' + DAY + ')|(?:on\\s+)' + DAY + '|tomorrow|today|on\\s+\\d{1,2}(?:st|nd|rd|th)?(?:\\s+' + MON + ')?)\\b', 'i').exec(p))) o.when = m[1];
+    if ((m = /\b(\d+)\s*(units?|pieces?|pcs|boxes|hampers|nos|sets|kgs?|packs?|people|guests)\b/i.exec(p))) o.qty = m[1] + ' ' + m[2];
+    if ((m = /\b(vendors?|suppliers?|clients?|customers?|manager|hr|candidates?|partners?)\b/i.exec(p))) o.who = m[1].toLowerCase();
+    if ((m = /\binvoice\s*(?:no\.?|number|#)?\s*([A-Z]*-?\d[\w-]*)/i.exec(p))) o.invoice = m[1];
+    return o;
+  }
+  /* what's left after a keyword: "thank Jim for the quick turnaround" → "the quick turnaround" */
+  function after(p, re) {
+    var m = re.exec(p);
+    if (!m) return '';
+    return p.slice(m.index + m[0].length).replace(/^\s*(?:for|about|on|regarding|with|to)\s+/i, '')
+      .replace(new RegExp('\\s+(?:as|in)\\s+(?:an?\\s+)?' + MAILW + '.*$', 'i'), '').replace(/[.!?]+$/, '').trim();
+  }
+
+  /* Intents the model recognises in any wording, filled from the prompt's
+     own details. They come before the demo scenes so "a discount on the quote"
+     is still a quote request. */
+  var INTENTS = [
+    { re: /\b(quotes?|quotations?|pricing|price list|rate card|rates for|estimates?|rfq)\b/i, make: function (sl) {
+      var items = sl.items || (sl.occasion ? sl.occasion + ' supplies' : 'your products');
+      var occ = sl.occasion && !new RegExp(sl.occasion, 'i').test(items) ? ' for ' + sl.occasion : '';
+      return {
+        subject: 'Request for quotation' + (sl.items ? ' – ' + cap(sl.items) : sl.occasion ? ' – ' + sl.occasion + ' order' : ''),
+        core: "we're planning to source " + items + occ + (sl.qty ? ' (around ' + sl.qty + ')' : '') + ", and I'd like to request a quotation from you.",
+        lead: 'Could you please include:', always: true,
+        points: ['Unit prices' + (sl.qty ? ' for ' + sl.qty : '') + ', including any bulk or festive discounts', 'Delivery timelines' + (sl.occasion ? ' — we need everything well before ' + sl.occasion : ''),
+          'Payment terms and how long the quote is valid', 'Minimum order quantities and current stock'],
+        extra: "If you have a catalogue or samples, please share those too — it'll help us decide quickly.",
+        ask: 'It would be great to have your quote by ' + (sl.deadline || 'the end of this week') + '.'
+      };
+    } },
+    { re: /\b(sick|unwell|not feeling well|fever)\b/i, make: function (sl) {
+      return { subject: 'Sick leave' + (sl.when ? ' – ' + sl.when.replace(/^on\s+/i, '') : ' today'),
+        core: "I'm not feeling well and won't be able to work " + (sl.when || 'today') + '.',
+        lead: 'To keep things moving:', points: ["Nothing urgent is blocked on me", "I'll check messages if anything critical comes up", "I'll update you on when I'm back"],
+        extra: "I'll catch up on anything I miss as soon as I'm back.", ask: 'Thanks for understanding.' };
+    } },
+    { re: /\b(leave|day off|days off|time off|vacation|wfh|work from home|working from home)\b/i, make: function (sl, p) {
+      var wfh = /\b(wfh|work(ing)? from home)\b/i.test(p);
+      var reason = sl.occasion ? ' for ' + sl.occasion : '';
+      return { subject: (wfh ? 'Working from home' : 'Leave request') + (sl.when ? ' – ' + sl.when.replace(/^(on|from|between)\s+/i, '') : reason ? ' –' + reason.replace(' for', '') : ''),
+        core: wfh ? "I'd like to work from home " + (sl.when || 'tomorrow') + reason + '.' : "I'd like to request leave " + (sl.when || 'for a few days') + reason + '.',
+        lead: 'Before then:', points: ["I'll wrap up or hand over anything urgent", "My calendar and status will be up to date", "I'll be reachable on phone for emergencies"],
+        extra: "I'll make sure nothing is blocked while I'm away.", ask: 'Please let me know if that works.' };
+    } },
+    { re: /\b(payment|invoice|overdue|outstanding|dues|pending amount)\b/i, make: function (sl) {
+      var inv = sl.invoice ? ' for invoice ' + sl.invoice : ' on our latest invoice';
+      return { subject: 'Payment reminder' + (sl.invoice ? ' – Invoice ' + sl.invoice : ''),
+        core: 'this is a gentle reminder that the payment' + inv + ' is now due.',
+        lead: 'For quick reference:', points: ['The invoice copy is attached with the amount and due date', 'Payment can be made by bank transfer or UPI', 'Please share the transaction reference once paid'],
+        extra: "If the payment is already on its way, please ignore this note — and thank you.",
+        ask: 'Could you confirm when we can expect it' + (sl.deadline ? ', ideally by ' + sl.deadline : '') + '?' };
+    } },
+    { re: /\b(sorry|apolog\w*|delay(ed|s)?|running late)\b/i, make: function (sl, p) {
+      var what = after(p, /\b(?:sorry|apolog\w*)\b/i).replace(/^(for|about)\s+/i, '').replace(/^(?:the\s+)?delay(?:ed)?\s*(?:in|on|with)?\s*/i, '');
+      var delay = /delay|late/i.test(p);
+      return { subject: delay ? 'Apologies for the delay' + (what ? ' in ' + what.split(' ').slice(0, 5).join(' ') : '') : 'My apologies',
+        core: "I'm sorry " + (delay ? 'for the delay' + (what ? ' in ' + what : '') : what ? 'about ' + what : 'for the trouble') + '.',
+        lead: 'A quick update:', points: ['What caused it', 'Where things stand now', 'The new timeline'],
+        extra: "I understand this affects your plans, and I'm putting steps in place so it doesn't happen again.",
+        ask: "I'll keep you posted — let me know if there's anything I can do in the meantime." };
+    } },
+    { re: /\b(thank(s| you)?|grateful|appreciat\w+)\b/i, make: function (sl, p) {
+      var what = after(p, /\b(?:thank(?:s| you)?|grateful|appreciat\w+)\b(?:\s+(?:you|him|her|them|jim|the team|everyone))?/i);
+      return { subject: 'Thank you' + (what ? ' for ' + what.split(' ').slice(0, 6).join(' ') : ''),
+        core: 'I wanted to say a big thank you' + (what ? ' for ' + what : '') + '.',
+        extra: "It made a real difference, and it hasn't gone unnoticed.", ask: 'Thanks again — I really appreciate it.' };
+    } },
+    { re: /\bintroduc\w*\b/i, make: function (sl, p) {
+      var who = after(p, /\bintroduc\w*\b/i).replace(/^(me|myself)\b\s*/i, '') || 'myself';
+      var self = /^myself$/i.test(who);
+      return { subject: self ? 'Introduction' : 'Introducing ' + who.split(' ').slice(0, 5).join(' '),
+        core: self ? "I'd like to introduce myself — I'm Amy from Acme, and I'll be your point of contact going forward." : "I'd like to introduce you to " + who + '.',
+        extra: self ? "I'm looking forward to working together." : "I think you'll have a lot to talk about, and I'll let you both take it from here.",
+        ask: self ? 'Let me know a good time for a quick call.' : 'Feel free to reply all to set up a time.' };
+    } },
+    { re: /\b(complain\w*|damaged|defective|broken|not working|refund|wrong item|poor quality|faulty)\b/i, make: function (sl) {
+      var it = sl.items || 'my recent order';
+      return { subject: 'Issue with ' + it,
+        core: "I'm writing about a problem with " + it + '.',
+        lead: 'Details:', points: ['What was ordered and when', "What's wrong with it", 'Photos are attached'],
+        extra: "I'd appreciate a quick resolution, as this affects our plans" + (sl.occasion ? ' for ' + sl.occasion : '') + '.',
+        ask: 'Could you let me know the next steps — a replacement or a refund' + (sl.deadline ? ' by ' + sl.deadline : '') + '?' };
+    } },
+    { re: /\b(place (?:an |the )?order|purchase order|\bpo\b|confirm (?:the |our |my )?order)\b/i, make: function (sl) {
+      var it = sl.items || 'the items we discussed';
+      return { subject: 'Order confirmation' + (sl.items ? ' – ' + cap(sl.items) : ''),
+        core: "I'd like to confirm our order for " + it + (sl.qty ? ' (' + sl.qty + ')' : '') + '.',
+        lead: 'Please confirm:', points: ['Final pricing as per your quote', 'Delivery date' + (sl.deadline ? ' (we need it by ' + sl.deadline + ')' : ''), 'Invoice details for processing'],
+        extra: 'The purchase order is attached for your records.', ask: 'Let me know once the order is processed.' };
+    } },
+    { re: /\b(celebration|party|get[- ]together|potluck|team lunch|team dinner|puja|pooja)\b/i, make: function (sl, p) {
+      var m = /\b((?:[\w-]+\s+){0,2}(?:celebration|party|get[- ]together|potluck|lunch|dinner|puja|pooja))\b/i.exec(p);
+      var ev = m ? m[1].replace(/^(a|an|the|our|for|to)\s+/i, '').replace(OCC, function (x) { return titleCase(x.toLowerCase()); }) : 'celebration';
+      return { subject: 'You’re invited: ' + cap(ev) + (sl.when ? ' ' + sl.when : ''),
+        core: "we're having a " + ev + (sl.when ? ' ' + sl.when : '') + ", and I'd love for you to join us.",
+        lead: 'What to expect:', points: ['Food, sweets and good company', 'A short break from the usual week', 'Time to catch up with everyone'],
+        extra: 'Feel free to bring along anything you\'d like to share.', ask: 'Let me know if you can make it' + (sl.deadline ? ' by ' + sl.deadline : '') + '.' };
+    } }
+  ];
+
+  /* "requesting X" → "request X" (for "I'm writing to …") */
+  function baseVerb(w) {
+    var lo = w.toLowerCase(), b = lo.replace(/ing$/, '');
+    if (b === lo) return null;
+    if (/(.)\1$/.test(b) && !(b in RANK)) b = b.slice(0, -1);
+    if (b + 'e' in RANK && !(b in RANK)) return b + 'e';
+    return b in RANK ? b : b + 'e' in RANK ? b + 'e' : null;
+  }
+
+  function scene(p, name, ctx) {
+    var sl = slots(p), cs = ctx ? slots(ctx) : {}, both = ctx ? p + ' — ' + ctx : p;
+    for (var k in cs) if (!(k in sl)) sl[k] = cs[k];       /* the note fills in what the prompt left out */
+    for (var j = 0; j < INTENTS.length; j++) if (INTENTS[j].re.test(both)) { var o = INTENTS[j].make(sl, p); o.intent = true; return o; }
+    for (var i = 0; i < SCENES.length; i++) if (SCENES[i].re.test(both)) return SCENES[i];
     var t = topic(p) || 'a quick update';
     var you = t.replace(nameRe(name), 'you').replace(/\b(him|her|them)\b/gi, 'you');
-    var subj = t.replace(nameRe(name), '').replace(/\s+(to|with|for)\s*$/i, '').replace(/\s+/g, ' ').trim().split(' ').slice(0, 7).join(' ');
+    you = you.replace(/^(tell|inform|notify|let)\s+(you|everyone|all)\s+(know\s+)?(that\s+)?/i, 'let you know that ');
+    var first = (you.split(' ')[0] || ''), core, bv = baseVerb(first);
+    if (/^let you know that /.test(you)) core = 'I wanted to ' + you + '.';
+    else if (/^(i|we)\s+(need|want|would like|'d like)\s+/i.test(you)) core = you.replace(/^(i|we)\s+(need|want)\s+/i, function (m, who) { return (who.toLowerCase() === 'i' ? "I'm" : "we're") + ' looking for '; }) + '.';
+    else if (/^(i|we)\b/i.test(you)) core = you.replace(/^i\b/, 'I') + '.';
+    else if (bv && first.length > 4) core = "I'm writing to " + bv + you.slice(first.length) + '.';
+    else if (VERB.test(you)) core = 'I wanted to ' + lowerFirst(you) + '.';
+    else core = 'I wanted to reach out about ' + lowerFirst(you) + '.';
+    var subj = t.replace(nameRe(name), '').replace(/^(i|we)\s+(need|want|would like|'d like)\s+(to\s+)?/i, '')
+      .replace(/^(ask|tell|let|remind|inform|notify)\s+((you|him|her|them|everyone|all)\s+)?(know\s+)?(about|that|to)?\s*/i, '')
+      .replace(/\s+/g, ' ').trim().split(' ').slice(0, 7).join(' ');
+    while (/\s(to|with|for|from|about|and|of|the|a|on|in|at|by|is|will|be)$/i.test(subj)) subj = subj.replace(/\s+\S+$/, '');
+    if (bv && subj.indexOf(first) === 0) subj = subj.slice(first.length).trim();
     return {
       subject: cap(subj || 'Quick note'),
-      core: (VERB.test(t) ? 'I wanted to ' : 'I wanted to reach out about ') + lowerFirst(you) + '.',
+      core: core,
       extra: "I've kept this brief, but I'm happy to share more detail or jump on a quick call if that's easier.",
       ask: 'Let me know what you think when you get a chance.'
     };
   }
 
-  function params(prompt, tone, len) {
-    return { prompt: prompt, tone: tone || 'Professional', len: len || 'Short', variant: 0, adds: [], bullets: false };
+  /* text already in the email that's really a note-to-self ("Vendor quotes"):
+     AI Write uses it as context and writes the email in its place */
+  function isNote(t) {
+    t = (t || '').trim();
+    return !!t && t.split(/\s+/).length <= 12 && !/\n/.test(t) && !/^(hi|hello|hey|dear)\b/i.test(t);
+  }
+
+  function params(prompt, tone, len, context) {
+    return { prompt: prompt, tone: tone || 'Professional', len: len || 'Short', variant: 0, adds: [], bullets: false, context: context || '' };
   }
 
   function compose(q) {
-    var name = nameFor(q.prompt), s = scene(q.prompt, name), T = TONE[q.tone] || TONE.Professional;
+    /* typos and stray phrasing are fixed before the prompt is read; a note already in the email adds context */
+    var p = phrases(fixTypos(q.prompt)).replace(new RegExp('\\s+(?:as|in|into)\\s+(?:an?\\s+)?' + MAILW + '(?:\\s+(?:draft|format))?\\b', 'gi'), '');
+    var ctx = q.context ? phrases(fixTypos(q.context)) : '';
+    var name = nameFor(p), s = scene(p, name, ctx), T = TONE[q.tone] || TONE.Professional;
     var op = T.open[q.variant % T.open.length], first;
-    if (/that $/.test(op) && /^I[ ']/.test(s.core)) first = s.core;
+    if (/that $/.test(op) && (/^I[ ']/.test(s.core) || s.intent)) first = cap(s.core);
     else if (/[!.] $/.test(op)) first = op + cap(s.core);
     else first = op + s.core;
     var paras = [T.hi.replace('{n}', name), first];
-    if (s.points && (q.len === 'Long' || q.bullets)) paras.push(s.lead + '\n' + s.points.map(function (b) { return '•  ' + b; }).join('\n'));
+    if (s.points && (q.len === 'Long' || q.bullets || s.always)) {
+      var pts = q.len === 'Long' || q.bullets ? s.points : s.points.slice(0, 3);
+      paras.push(s.lead + '\n' + pts.map(function (b) { return '•  ' + b; }).join('\n'));
+    }
     if (q.len === 'Long') paras.push(s.extra);
     paras = paras.concat(q.adds);
     paras.push(s.ask, T.close + '\nAmy');
-    return { subject: s.subject, text: paras.join('\n\n') };
+    return { subject: s.subject, text: paras.join('\n\n').replace(/([.!?])\./g, '$1') };
   }
 
   /* "Describe your change" → new params. Anything it can't read is
      treated as "try another way" so a send always produces a new version. */
   function refine(q, ask) {
-    var n = { prompt: q.prompt, tone: q.tone, len: q.len, variant: q.variant, adds: q.adds.slice(), bullets: q.bullets };
+    ask = phrases(fixTypos(ask));
+    var n = { prompt: q.prompt, tone: q.tone, len: q.len, variant: q.variant, adds: q.adds.slice(), bullets: q.bullets, context: q.context };
+    /* a request for a different email altogether starts over from that prompt */
+    if (/\b(instead|rather|actually)\b/i.test(ask) && /\b(write|draft|email|mail)\b/i.test(ask)) { n.prompt = ask; n.adds = []; return n; }
     var a = ask.toLowerCase(), hit = false, lines = 0;
     function add(line) { if (n.adds.indexOf(line) < 0) n.adds.push(line); hit = true; lines++; }
     if (/friendl|warm|nicer|kind|enthusias/.test(a)) { n.tone = 'Friendly'; hit = true; }
@@ -429,10 +708,28 @@ var P = (function () {
     }
     return s;
   }
+  /* a follow-up sentence that fits what the text is about */
+  function elab(t, v) {
+    if (/\bquot|pric|rates?\b|estimate/i.test(t)) return ['Could you share your best pricing, available quantities and delivery timelines?', 'Please include unit prices, delivery dates and payment terms.'][v % 2];
+    if (/\bmeet|call|sync|discuss/i.test(t)) return ['Could we find 30 minutes this week to go over it?', "I'm flexible on timing — just suggest a slot."][v % 2];
+    if (/\bleave|off\b|vacation/i.test(t)) return ["I'll make sure everything is handed over before then.", "I'll stay reachable for anything urgent."][v % 2];
+    if (/\bpay|invoice|due\b/i.test(t)) return ['Please let me know once it has been processed.', 'Do share the transaction reference once paid.'][v % 2];
+    return ELAB[v % ELAB.length];
+  }
+  /* "Requesting quotes" → "I'm writing to request quotes." — a fragment becomes a sentence */
+  function sentence(t) {
+    var w = t.split(' ')[0], bv = baseVerb(w);
+    if (bv && w.length > 4) return "I'm writing to " + bv + t.slice(w.length) + '.';
+    if (/^(i|we)\b/i.test(t)) return cap(t) + '.';
+    if (VERB.test(t)) return 'I wanted to ' + lowerFirst(t) + '.';
+    return 'This is about ' + lowerFirst(t) + '.';
+  }
+  function isFragment(t) { return !/[.!?]["”']?$/.test(t.trim()) && words(t) <= 10 && !/\n/.test(t); }
   function lengthen(t, v) {
     if (/\n•/.test(t)) return t + '\n•  ' + ["Anything else you'd like us to cover", 'Time for questions at the end', 'A short recap afterwards'][v % 3];
+    if (isFragment(t)) return sentence(t) + ' ' + elab(t, v);
     var s = swap(t, [[/\bthis week\b/gi, 'over the coming week'], [/\bquick\b/gi, 'short']]);
-    return /[.!?]$/.test(s) ? s + ' ' + ELAB[v % ELAB.length] : s + ', and what comes next';
+    return (/[.!?]$/.test(s) ? s : s + '.') + ' ' + elab(t, v);
   }
   /* word swaps per op — applied on top of the phrase rules, so short
      sentences and lists still visibly change */
@@ -487,15 +784,39 @@ var P = (function () {
     [/\bwe're hosting\b/gi, "we're running"], [/\bwill cover\b/gi, 'will go through'], [/\bJust reply\b/g, 'Simply reply'],
     [/\bongoing\b/gi, 'current'], [/\bPractical\b/g, 'Hands-on'], [/\bSimple\b/g, 'Easy'], [/\bthink\b/gi, 'believe'],
     [/\bbusy\b/gi, 'stretched'], [/\bfocus on\b/gi, 'concentrate on']];
+  /* phrase-level alternatives, used when the word swaps found nothing to change */
+  var ALT = [[/\bI wanted to\b/g, "I'm writing to"], [/\bI'm writing to\b/g, 'I wanted to'], [/\bCould you\b/g, 'Would you be able to'],
+    [/\bWould you be able to\b/g, 'Could you'], [/^Please\b/, 'Could you please'], [/\bLet me know\b/g, 'Please let me know'],
+    [/\bI'd like to\b/g, 'I would like to'], [/\bas soon as possible\b/gi, 'at the earliest'], [/\bat the earliest\b/gi, 'as soon as possible'],
+    [/\bThanks\b/g, 'Thank you'], [/\bget back to me\b/gi, 'let me know'], [/\bshare\b/gi, 'send over']];
   function rephrase(t, v) {
     var s = swap(t, SYN.filter(function (_, i) { return i % 2 === v % 2; }));
-    return s === t ? swap(t, SYN) : s;
+    if (s === t) s = swap(t, SYN);
+    if (s === t) {                      /* still the same: one phrase-level change, a different one each version */
+      for (var i = 0; i < ALT.length && s === t; i++) {
+        var a = ALT[(i + v) % ALT.length];
+        if (a[0].test(t)) s = t.replace(a[0], a[1]);
+        a[0].lastIndex = 0;
+      }
+    }
+    if (s === t && isFragment(t)) s = v % 2 ? sentence(t) : cap(t.replace(/^(requesting|request)\b/i, 'Request for').replace(/^Request for (quotes?)/i, 'Quote request'));
+    return s;
   }
 
   /* q: { tone, len ('Shorter' | 'Longer'), grammar, improve, adds, variant } */
-  function selParams() { return { tone: null, len: null, grammar: false, improve: false, adds: [], variant: 0 }; }
+  function selParams() { return { tone: null, len: null, grammar: false, improve: false, adds: [], variant: 0, write: null }; }
 
   function rewrite(text, q) {
+    /* "Draft an email requesting quotes" on a selection writes that email in its place */
+    if (q.write) {
+      var out = compose({ prompt: q.write, context: text, tone: q.tone === 'Casual' || q.tone === 'Friendly' ? q.tone : 'Professional',
+        len: q.len === 'Longer' ? 'Long' : 'Short', variant: q.variant, adds: q.adds, bullets: false });
+      if (words(text) <= 12) return out.text;
+      return out.text.split('\n\n').slice(1, -2).join('\n\n');   /* inside a longer email: just the middle */
+    }
+    /* typos and stray phrasing ("Requsting for quotes") are always fixed */
+    var orig = text;
+    text = phrases(fixTypos(text));
     var s = q.grammar ? grammar(text) : tidy(text);
     if (q.improve) s = improve(s);
     if (q.len === 'Shorter') s = shorten(s); else if (q.len === 'Longer') s = lengthen(s, q.variant);
@@ -503,7 +824,7 @@ var P = (function () {
     /* a fragment picked from mid-sentence can't take a new sentence after it */
     var fragment = !/[.!?]["”']?$/.test(text);
     q.adds.forEach(function (a) { s += fragment ? ' — ' + lowerFirst(a).replace(/[.!]$/, '') : ' ' + a; });
-    if (q.variant || (s === text && !q.grammar)) s = rephrase(s, q.variant);
+    if (q.variant || (s === orig && !q.grammar)) s = rephrase(s, q.variant);
     s = fixCaps(s);
     /* ...and stays a fragment: no capital it didn't have */
     if (/^[a-z]/.test(text) && !/^I\b/.test(s)) s = s[0].toLowerCase() + s.slice(1);
@@ -513,7 +834,13 @@ var P = (function () {
   /* "Describe your change" for a selection → new params. Asking for what
      it already did counts as "try another way". */
   function refineSel(q, ask) {
+    ask = phrases(fixTypos(ask));
     var n = JSON.parse(JSON.stringify(q)), a = ask.toLowerCase(), hit = false, lines = 0;
+    /* asking for an email, not a change to these words */
+    if (/\b(draft|write|compose|prepare|create)\b/.test(a) && /\b(e-?mail|mail|message|letter|note|reply)\b/.test(a) ||
+        /^(an?\s+)?(e-?mail|mail)\b/.test(a) || /\b(turn|make|convert)\s+(this|it)\s+into\s+an?\s+(e-?mail|mail)\b/.test(a)) {
+      n.write = ask; n.variant = q.write ? q.variant + 1 : 0; return n;
+    }
     function add(line) { if (n.adds.indexOf(line) < 0) n.adds.push(line); hit = true; lines++; }
     if (/friendl|warm|nicer|kind|enthusias/.test(a)) { n.tone = 'Friendly'; hit = true; }
     else if (/casual|relax|informal|chill/.test(a)) { n.tone = 'Casual'; hit = true; }
@@ -521,12 +848,15 @@ var P = (function () {
     if (/short|concise|brief|trim|tight|cut/.test(a)) { n.len = 'Shorter'; hit = true; }
     else if (/long|detail|expand|elaborat/.test(a)) { n.len = 'Longer'; hit = true; }
     if (/grammar|spelling|typo|proofread|fix/.test(a)) { n.grammar = true; hit = true; }
-    if (/improve|better|polish|clear|refine/.test(a)) { n.improve = true; hit = true; }
+    if (/improve|better|polish|clear|refine|rewrite|rephrase|reword|sound/.test(a)) { n.improve = true; hit = true; }
+    if (/\b(sentence|complete|full)\b/.test(a) && !n.len) { n.len = 'Longer'; hit = true; }
     if (/record/.test(a)) add("Everyone who signs up gets the recording.");
     if (/deadline|urgent|asap|by (mon|tue|wed|thu|fri)/.test(a)) add("It would be great to hear back by Friday.");
     if (/thank/.test(a)) add('Thanks again — I really appreciate it.');
     var m = /\b(?:mention|add|include|say|note)\s+(?:that\s+)?(.+)$/i.exec(ask);
     if (m && !lines) add(cap(m[1].replace(/^(a\s+)?(line|sentence|note|bit)\s+(about|on|saying)\s+/i, '').replace(/[.!]+$/, '')) + '.');
+    /* anything else still does something useful: polish it and try another wording */
+    if (!hit) { n.improve = true; n.grammar = true; }
     if (!hit || JSON.stringify(n) === JSON.stringify(q)) n.variant++;
     return n;
   }
@@ -611,9 +941,28 @@ var P = (function () {
   }
 
   /* Figma 5525:2355 — iOS edit menu over the selection, bar collapses to AI Refine */
-  var EDIT_MENU = '<div class="ios-menu"><span data-act="m-cut">Cut</span><span data-act="m-copy">Copy</span>' +
-    '<span data-act="m-other">Paste</span><span data-act="m-other">Replace…</span>' +
-    '<span style="padding:0 11px" data-act="m-other">&#8250;</span><div class="ios-menu-tail"></div></div>';
+  /* bounds of the text itself, without leading / trailing blank lines */
+  function allRange(t) {
+    var s = t.search(/\S/), e = t.replace(/\s+$/, '').length;
+    return s < 0 ? null : { s: s, e: e };
+  }
+  /* a selection gets Cut · Copy · Paste · Select All; a tap on the caret gets Select · Select All · Paste */
+  function editMenu(st) {
+    if (st.dragging) return '';
+    var item = function (act, label) { return '<span data-act="' + act + '">' + label + '</span>'; };
+    var all = allRange(st.body);
+    if (st.sel) {
+      var whole = all && st.sel.s <= all.s && st.sel.e >= all.e;
+      return '<div class="ios-menu">' + item('m-cut', 'Cut') + item('m-copy', 'Copy') + item('m-paste', 'Paste') +
+        (whole ? '' : item('m-all', 'Select All')) + '<div class="ios-menu-tail"></div></div>';
+    }
+    if (st.cmenu && st.focus === 'body') {
+      return '<div class="ios-menu caret">' + (all ? item('m-select', 'Select') + item('m-all', 'Select All') : '') +
+        item('m-paste', 'Paste') + '<div class="ios-menu-tail"></div></div>';
+    }
+    return '';
+  }
+  var EDIT_MENU = '';
   function refinePill(act) { return pill('i-ai-write', 'AI Refine', { act: act }); }
   var REFINE_CONFIRM = { title: 'Discard this rewrite?', body: 'Your selected text stays as it is in the email.', btn: 'Discard rewrite' };
 
@@ -623,20 +972,50 @@ var P = (function () {
     return {
       multiline: true,
       get: function () { return st.body.slice(0, a); },
-      set: function (v) { st.body = v + st.body.slice(b); st.caret = v.length; st.sel = null; st.flash = null; },
-      backspace: st.sel ? function () { st.body = st.body.slice(0, a) + st.body.slice(b); st.caret = a; st.sel = null; } : null
+      set: function (v) { st.body = v + st.body.slice(b); st.caret = v.length; st.sel = null; st.flash = null; st.cmenu = false; },
+      backspace: st.sel ? function () { st.body = st.body.slice(0, a) + st.body.slice(b); st.caret = a; st.sel = null; st.cmenu = false; } : null
     };
   }
 
-  function clip(t) { try { navigator.clipboard.writeText(t); } catch (x) { } }
-  /* Cut / Copy work; the rest of the menu is out of scope. true = handled */
+  /* the system clipboard when the browser allows it, and our own copy as a fallback */
+  var lastClip = '';
+  function clip(t) { lastClip = t; try { navigator.clipboard.writeText(t); } catch (x) { } }
+  function wordAt(t, o) {
+    var s = o, e = o;
+    while (s > 0 && /[\w'’]/.test(t[s - 1])) s--;
+    while (e < t.length && /[\w'’]/.test(t[e])) e++;
+    if (s === e) {                 /* on a space or punctuation: the word before it */
+      var b = s; while (b > 0 && !/[\w'’]/.test(t[b - 1])) b--;
+      if (b === 0) return null;
+      return wordAt(t, b - 1);
+    }
+    return { s: s, e: e };
+  }
+  /* the edit menu. true = handled */
   function editAct(a, st, api) {
-    if (a === 'm-cut') {
+    st.cmenu = false;
+    if (a === 'm-cut' && st.sel) {
       clip(st.body.slice(st.sel.s, st.sel.e));
       st.caret = st.sel.s; st.body = st.body.slice(0, st.sel.s) + st.body.slice(st.sel.e); st.sel = null;
       api.toast({ msg: 'Cut' });
-    } else if (a === 'm-copy') { clip(st.body.slice(st.sel.s, st.sel.e)); api.toast({ msg: 'Copied' }); }
-    else if (a === 'm-other') api.toast({ msg: 'Only Cut, Copy and AI Refine work here' });
+    } else if (a === 'm-copy' && st.sel) { clip(st.body.slice(st.sel.s, st.sel.e)); st.caret = st.sel.e; st.sel = null; api.toast({ msg: 'Copied' }); }
+    else if (a === 'm-all') { st.sel = allRange(st.body); st.flash = null; st.focus = 'body'; api.render(); }
+    else if (a === 'm-select') {
+      var c = st.caret == null ? st.body.length : st.caret;
+      st.sel = wordAt(st.body, c); st.flash = null; api.render();
+    } else if (a === 'm-paste') {
+      var put = function (txt) {
+        txt = (txt || '').replace(/\r/g, '');
+        if (!txt) return api.toast({ msg: 'Nothing to paste' });
+        var s0 = st.sel ? st.sel.s : st.caret == null ? st.body.length : st.caret, e0 = st.sel ? st.sel.e : s0;
+        st.body = st.body.slice(0, s0) + txt + st.body.slice(e0);
+        st.caret = s0 + txt.length; st.sel = null; st.flash = null; st.focus = 'body';
+        api.render();
+      };
+      try { navigator.clipboard.readText().then(function (t) { put(t || lastClip); }, function () { put(lastClip); }); }
+      catch (x) { put(lastClip); }
+    }
+    else if (a === 'm-other') api.render();
     else return false;
     return true;
   }
@@ -646,8 +1025,11 @@ var P = (function () {
   function placeSel(root, keepInView) {
     var phone = root.querySelector('.phone'), pr = phone.getBoundingClientRect(), k = pr.width / 402;
     var marks = root.querySelectorAll('.selhl'), menu = root.querySelector('.ios-menu');
+    var caretEl = menu && !marks.length ? root.querySelector('.ios-body .sw-caret') : null;
+    if (caretEl) marks = [caretEl];
     if (menu && marks.length) {
       var first = marks[0].getClientRects()[0], lr = marks[marks.length - 1].getClientRects(), last = lr[lr.length - 1];
+      if (!first || !last) return;
       var w = menu.offsetWidth, top = (first.top - pr.top) / k - 58, below = false;
       if (top < 118) { top = (last.bottom - pr.top) / k + 22; below = true; }
       menu.style.top = top + 'px';
@@ -660,34 +1042,59 @@ var P = (function () {
     }
   }
 
-  /* Mouse selection in the email: a drag, double- or triple-click gives a
-     selection; a plain click moves the caret. A single click waits a beat so
-     a double-click isn't cut short by the re-render. ok(st) says whether the
-     composer is the thing on screen. */
-  var lastUp = 0, pendingCaret = null;
+  /* Selecting text in the email.
+     Mouse: native — drag, double- or triple-click; a click moves the caret.
+     Touch: done by the prototype itself, like iOS — tap places the caret,
+       tap the caret again for Select / Select All / Paste, double-tap or
+       long-press selects a word (keep dragging to extend), and the handles
+       drag. The browser's own selection is switched off on touch screens,
+       which is what popped up Chrome's search sheet and its Cut / Copy menu
+       on top of ours. ok(st) says whether the composer is the thing on screen. */
+  var lastUp = 0, pendingCaret = null, swallow = false;
+  function caretRange(x, y) {
+    if (document.caretRangeFromPoint) return document.caretRangeFromPoint(x, y);
+    var p = document.caretPositionFromPoint && document.caretPositionFromPoint(x, y);
+    if (!p) return null;
+    var r = document.createRange(); r.setStart(p.offsetNode, p.offset); return r;
+  }
+  /* screen point → offset in the body text (clamped to the text's start / end) */
+  function offsetAt(x, y, len) {
+    var host = document.querySelector('#phone .sel-text');
+    if (!host) return null;
+    var hr = host.getBoundingClientRect();
+    if (y > hr.bottom) return len;
+    if (y < hr.top) return 0;
+    var paras = host.querySelectorAll('.para'), para = null;
+    for (var i = 0; i < paras.length; i++) {        /* the paragraph on that line, or the one just above a gap */
+      var pr = paras[i].getBoundingClientRect();
+      if (y >= pr.top - 1) para = paras[i];
+    }
+    if (!para) return 0;
+    var pb = para.getBoundingClientRect();
+    if (y > pb.bottom) return +para.dataset.o + para.textContent.length;
+    var r = caretRange(Math.max(pb.left + 1, Math.min(pb.right - 1, x)), y);
+    if (r && para.contains(r.startContainer)) return offsetOf(host, r.startContainer, r.startOffset);
+    return +para.dataset.o + (x > pb.left + pb.width / 2 ? para.textContent.length : 0);
+  }
   function selectable(api, ok) {
-    /* on a touch screen a long-press selection never sends mouseup: take it
-       once the user stops dragging the handles */
-    var settle = null;
-    document.addEventListener('selectionchange', function () {
-      clearTimeout(settle);
-      if (!window.matchMedia('(pointer: coarse)').matches) return;
-      var ns = window.getSelection();
-      if (!ns.rangeCount || ns.isCollapsed) return;
-      settle = setTimeout(function () { commit(true); }, 600);
+    var coarse = window.matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
+    var lastTouch = 0;
+    document.getElementById('phone').addEventListener('mouseup', function (e) {
+      /* the mouse events a browser makes up after a touch are not a mouse */
+      if (Date.now() - lastTouch < 1000 || (e.sourceCapabilities && e.sourceCapabilities.firesTouchEvents)) return;
+      commit();
     });
-    document.getElementById('phone').addEventListener('mouseup', function () { commit(false); });
-    function commit(fromTouch) {
+    function commit() {
       var st = api.state();
       if (!ok(st)) return;
       var host = document.querySelector('#phone .sel-text'), ns = window.getSelection();
       if (!host || !ns.rangeCount) return;
       var r = ns.getRangeAt(0);
       if (!host.contains(r.startContainer) && r.startContainer !== host) return;
-      if (fromTouch && r.collapsed) return;
       lastUp = Date.now();
       var s = offsetOf(host, r.startContainer, r.startOffset), e = offsetOf(host, r.endContainer, r.endOffset);
       clearTimeout(pendingCaret);
+      st.cmenu = false;
       if (!r.collapsed && s != null) {
         var sel = snap(st.body, s, e == null ? st.body.length : e);
         ns.removeAllRanges();
@@ -700,9 +1107,109 @@ var P = (function () {
         api.render();
       }, 220);
     }
+
+    /* ── touch ── */
+    var phone = document.getElementById('phone'), t0 = null, longT = null, drag = null, lastTap = null;
+    function k() { var ph = phone.querySelector('.phone'); return ph ? ph.getBoundingClientRect().width / 402 : 1; }
+    function inText(el) { return el.closest && el.closest('.ios-body') && el.closest('.ios-fields'); }
+    /* Every render replaces the phone's DOM, and touch events keep going to
+       the element the finger first landed on — which is then detached and no
+       longer bubbles. So each gesture listens on its own start element. */
+    function follow(el) {
+      if (!el || el._tracked) return;
+      el._tracked = true;
+      el.addEventListener('touchmove', move, { passive: false });
+      el.addEventListener('touchend', end, { passive: false });
+      el.addEventListener('touchcancel', end, { passive: false });
+    }
+    phone.addEventListener('touchstart', function (e) {
+      var st = api.state();
+      lastTouch = Date.now(); swallow = false;
+      follow(e.target);
+      if (!ok(st) || e.touches.length > 1) { t0 = null; return; }
+      var tt = e.touches[0], el = e.target, hd = el.closest && el.closest('.hd');
+      clearTimeout(longT);
+      if (hd && st.sel) {                       /* grab a handle */
+        e.preventDefault();
+        drag = { type: hd.classList.contains('lead') ? 'lead' : 'trail' };
+        st.dragging = true; api.render();
+        return;
+      }
+      if (!inText(el)) { t0 = null; return; }
+      t0 = { x: tt.clientX, y: tt.clientY, at: Date.now(), moved: false };
+      longT = setTimeout(function () {          /* long-press: select the word, then drag to extend */
+        if (!t0 || t0.moved) return;
+        var o = offsetAt(t0.x, t0.y, st.body.length);
+        var w = o == null ? null : wordAt(st.body, Math.min(o, st.body.length));
+        if (!w) { st.focus = 'body'; st.caret = o; st.cmenu = true; api.render(); t0 = null; return; }
+        if (navigator.vibrate) try { navigator.vibrate(8); } catch (x) {}
+        st.sel = w; st.flash = null; st.focus = 'body'; st.caret = null; st.cmenu = false; st.dragging = true;
+        drag = { type: 'extend', anchor: w };
+        t0 = null; swallow = true; api.render();
+      }, 380);
+    }, { passive: false });
+    function move(e) {
+      var st = api.state(), tt = e.touches[0];
+      if (!tt) return;
+      if (drag) {
+        e.preventDefault();
+        var y = tt.clientY + (drag.type === 'lead' ? 14 : drag.type === 'trail' ? -14 : 0) * k();
+        var o = offsetAt(tt.clientX, y, st.body.length);
+        if (o == null || !st.sel) return;
+        var s0 = st.sel.s, e0 = st.sel.e;
+        if (drag.type === 'extend') {
+          var w = wordAt(st.body, Math.min(o, st.body.length)) || { s: o, e: o };
+          s0 = Math.min(drag.anchor.s, w.s); e0 = Math.max(drag.anchor.e, w.e);
+        } else if (drag.type === 'lead') {
+          if (o >= e0) { drag.type = 'trail'; s0 = e0; e0 = o; } else s0 = o;
+        } else {
+          if (o <= s0) { drag.type = 'lead'; e0 = s0; s0 = o; } else e0 = o;
+        }
+        if (e0 > s0 && (s0 !== st.sel.s || e0 !== st.sel.e)) { st.sel = { s: s0, e: e0 }; api.render(); }
+        return;
+      }
+      if (t0 && Math.abs(tt.clientX - t0.x) + Math.abs(tt.clientY - t0.y) > 10) { t0.moved = true; clearTimeout(longT); }
+    }
+    function end(e) {
+      var st = api.state();
+      lastTouch = Date.now();
+      if (e.currentTarget && e.currentTarget._tracked && !e.touches.length) {
+        e.currentTarget._tracked = false;
+        e.currentTarget.removeEventListener('touchmove', move); e.currentTarget.removeEventListener('touchend', end); e.currentTarget.removeEventListener('touchcancel', end);
+      }
+      clearTimeout(longT);
+      if (drag) {                               /* let go of a handle: the menu comes back */
+        drag = null; st.dragging = false; lastUp = Date.now();
+        if (e.cancelable) e.preventDefault();
+        return api.render();
+      }
+      if (!t0 || t0.moved || e.type === 'touchcancel' || Date.now() - t0.at > 600) { t0 = null; return; }
+      var x = t0.x, y = t0.y; t0 = null;
+      var o = offsetAt(x, y, st.body.length);
+      if (o == null) return;
+      lastUp = Date.now();
+      if (e.cancelable) e.preventDefault();      /* no synthetic click, no double-tap zoom */
+      var dbl = lastTap && Date.now() - lastTap.at < 320 && Math.abs(x - lastTap.x) < 24 && Math.abs(y - lastTap.y) < 24;
+      lastTap = { x: x, y: y, at: Date.now() };
+      st.flash = null;
+      if (dbl) {                                 /* double-tap: the word */
+        var w = wordAt(st.body, Math.min(o, st.body.length));
+        if (w) { st.sel = w; st.focus = 'body'; st.caret = null; st.cmenu = false; lastTap = null; return api.render(); }
+      }
+      /* caret goes to the nearer edge of the tapped word, like iOS */
+      var tw = wordAt(st.body, Math.min(o, st.body.length));
+      if (tw && o > tw.s && o < tw.e) o = o - tw.s < tw.e - o ? tw.s : tw.e;
+      var cur = st.caret == null ? st.body.length : st.caret;
+      var again = st.focus === 'body' && !st.sel && Math.abs(cur - o) <= 1;
+      st.sel = null; st.focus = 'body'; st.caret = o; st.cmenu = again ? !st.cmenu : false;
+      api.render();
+    }
   }
   /* the click that follows a text mouseup is already handled */
-  function tappedText() { return Date.now() - lastUp < 400; }
+  function tappedText() {
+    if (swallow) { swallow = false; return true; }
+    return Date.now() - lastUp < 400;
+  }
 
   /* the review card for a refine: the selection on top, the rewrite below */
   function refineCard(orig, o) {
@@ -778,21 +1285,33 @@ var P = (function () {
     window.addEventListener('resize', clamp);
   }
 
+  /* Desktop: the 402×874 phone scales down to fit the window.
+     Phone: the prototype IS the screen — full width, and the height stretches
+     to whatever the browser leaves (address bar shown or hidden), so the
+     keyboard stays full size and anchored to the bottom. */
+  var MIN_PH = 640;
   function fit() {
     var wrap = document.querySelector('.device-wrap');
     function f() {
-      var s;
-      if (window.innerWidth <= 600) {   /* on a phone: fill the screen under the option bar */
-        var nav = document.querySelector('.panel'), h = window.innerHeight - (nav ? nav.offsetHeight : 0);
-        s = Math.min(window.innerWidth / 402, h / 874);
-        return wrap.style.setProperty('--s', s.toFixed(4));
+      var vv = window.visualViewport, vw = window.innerWidth, vh = window.innerHeight, s, ph = 874;
+      if (vw <= 600) {
+        /* the on-screen (real) keyboard shrinks the visual viewport — ignore that, the prototype draws its own */
+        if (vv && vv.scale === 1 && vv.height > vh * 0.7) vh = vv.height;
+        var nav = document.querySelector('.panel'), h = vh - (nav ? nav.offsetHeight : 0);
+        s = vw / 402; ph = h / s;
+        if (ph < MIN_PH) { s = h / MIN_PH; ph = MIN_PH; }   /* very short window: fall back to scaling */
+      } else {
+        s = Math.min(1, (vh - 48) / 874);
+        if (vw < 860) s = Math.min(s, (vw - 32) / 402);
+        s = Math.max(.5, s);
       }
-      s = Math.min(1, (window.innerHeight - 48) / 874);
-      if (window.innerWidth < 860) s = Math.min(s, (window.innerWidth - 32) / 402);
-      wrap.style.setProperty('--s', Math.max(.5, s).toFixed(3));
+      wrap.style.setProperty('--s', s.toFixed(4));
+      wrap.style.setProperty('--ph', Math.floor(ph) + 'px');
     }
     f(); window.addEventListener('resize', f); window.addEventListener('load', f);
-    if (window.ResizeObserver && document.querySelector('.panel')) new ResizeObserver(f).observe(document.querySelector('.panel')); window.addEventListener('orientationchange', function () { setTimeout(f, 200); });
+    if (window.visualViewport) window.visualViewport.addEventListener('resize', f);
+    if (window.ResizeObserver && document.querySelector('.panel')) new ResizeObserver(f).observe(document.querySelector('.panel'));
+    window.addEventListener('orientationchange', function () { setTimeout(f, 200); });
   }
 
   /* cfg: init() → state, view(st) → html, act(a, el, st, api),
@@ -817,20 +1336,57 @@ var P = (function () {
     kb.changed = api.render;
     kb.escape = function () { if (cfg.escape) cfg.escape(st, api); };
 
-    root.addEventListener('mousedown', function (e) { if (e.target.closest('[data-key],[data-sug]')) e.preventDefault(); });
-    root.addEventListener('click', function (e) {
-      var k = e.target.closest('[data-key]');
-      if (k) {
-        var c = k.dataset.key;
-        if (c === 'shift') { kb.shift = !kb.shift; api.render(); }
-        else if (c === 'del') backspace();
-        else if (c === 'space') insert(' ', true);
-        else if (c === 'enter') enter();
-        else insert(c, true);
-        return;
+    /* The keyboard types on touch-DOWN, like a real one. Waiting for "click"
+       dropped fast taps: every key re-renders the phone, so the element a
+       finger went down on was gone by the time the click would fire. A touch
+       in the gap between keys goes to the nearest key, so there are no dead zones. */
+    var repeat = null, pressTimer = null;
+    function nearestKey(kbdEl, x, y) {
+      var bestEl = null, bestD = 1e9;
+      kbdEl.querySelectorAll('[data-key],[data-sug]').forEach(function (k) {
+        var r = k.getBoundingClientRect();
+        var dx = Math.max(r.left - x, 0, x - r.right), dy = Math.max(r.top - y, 0, y - r.bottom), d = dx * dx + dy * dy;
+        if (d < bestD) { bestD = d; bestEl = k; }
+      });
+      var k = root.querySelector('.phone').getBoundingClientRect().width / 402;
+      return bestD <= (14 * k) * (14 * k) ? bestEl : null;
+    }
+    function press(c) {
+      kb.pressed = c; clearTimeout(pressTimer);
+      pressTimer = setTimeout(function () { kb.pressed = null; api.render(); }, 110);
+    }
+    function typeKey(c) {
+      press(c);
+      if (c === 'shift') { kb.shift = !kb.shift; api.render(); }
+      else if (c === 'layer') { kb.layer = kb.layer === '123' ? 'abc' : '123'; kb.shift = false; api.render(); }
+      else if (c === 'del') backspace();
+      else if (c === 'space') insert(' ', true);
+      else if (c === 'enter') enter();
+      else {
+        insert(c, true);
+        if (kb.layer === '123' && c === "'") { kb.layer = 'abc'; api.render(); }
       }
-      var s = e.target.closest('[data-sug]');
-      if (s) return pick(s.dataset.sug);
+    }
+    function stopRepeat() { clearTimeout(repeat); clearInterval(repeat); repeat = null; }
+    root.addEventListener('pointerdown', function (e) {
+      var kbdEl = e.target.closest('.ios-kbd');
+      if (!kbdEl || e.button > 0) return;
+      e.preventDefault();
+      var k = e.target.closest('[data-key],[data-sug]') || nearestKey(kbdEl, e.clientX, e.clientY);
+      if (!k) return;
+      if (k.dataset.sug != null) { press('sug'); return pick(k.dataset.sug); }
+      var c = k.dataset.key;
+      typeKey(c);
+      if (c === 'del') {          /* hold to keep deleting */
+        stopRepeat();
+        repeat = setTimeout(function () { repeat = setInterval(function () { press('del'); backspace(); }, 70); }, 420);
+      }
+    });
+    ['pointerup', 'pointercancel', 'blur'].forEach(function (n) { (n === 'blur' ? window : document).addEventListener(n, stopRepeat); });
+    root.addEventListener('mousedown', function (e) { if (e.target.closest('.ios-kbd')) e.preventDefault(); });
+    root.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+    root.addEventListener('click', function (e) {
+      if (e.target.closest('.ios-kbd')) return;     /* already typed on pointerdown */
       var a = e.target.closest('[data-act]');
       if (!a) return;
       var name = a.dataset.act;
@@ -852,10 +1408,10 @@ var P = (function () {
     app: app, shell: shell, kbd: kbd, ico: ico, pill: pill, esc: esc, fmt: fmt, text: text, CARET: CARET, BARS: BARS,
     COMPOSE_ROW: COMPOSE_ROW, draftCard: draftCard, verStepper: verStepper, confirmSheet: confirmSheet,
     cField: cField, cChip: cChip, cLeft: cLeft, dock: dock, stream: stream,
-    ai: { params: params, compose: compose, refine: refine, selParams: selParams, rewrite: rewrite, refineSel: refineSel },
+    ai: { params: params, compose: compose, refine: refine, selParams: selParams, rewrite: rewrite, refineSel: refineSel, isNote: isNote, fix: fixTypos },
     sel: {
       bodyHtml: bodyHtml, body: selBody, target: bodyTarget, act: editAct, place: placeSel, watch: selectable,
-      tapped: tappedText, card: refineCard, pill: refinePill, MENU: EDIT_MENU, CONFIRM: REFINE_CONFIRM, LENS: ['Shorter', 'Longer']
+      tapped: tappedText, card: refineCard, pill: refinePill, MENU: EDIT_MENU, menu: editMenu, CONFIRM: REFINE_CONFIRM, LENS: ['Shorter', 'Longer']
     },
     TONES: ['Professional', 'Casual', 'Friendly'], LENS: ['Short', 'Long']
   };

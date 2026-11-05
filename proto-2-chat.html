@@ -3,8 +3,8 @@
 
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <title>Replacing content directly (like web)</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover,interactive-widget=overlays-content">
+  <title>Option 1</title>
   <link rel="stylesheet" href="proto.css">
 </head>
 
@@ -12,8 +12,8 @@
 
   <aside class="panel">
     <nav class="others">
-      <a class="on" href="proto-2-chat.html"><span class="n">1</span>Replacing content directly (like web)</a>
-      <a href="proto-3-draft-sheet.html"><span class="n">2</span>Dedicated bottom sheet</a>
+      <a class="on" href="proto-2-chat.html"><span class="n">1</span>Option 1</a>
+      <a href="proto-3-draft-sheet.html"><span class="n">2</span>Option 2</a>
     </nav>
   </aside>
 
@@ -21,6 +21,7 @@
     <div class="device" id="phone"></div>
   </div>
 
+  <script src="words.js"></script>
   <script src="proto.js"></script>
   <script>
     /* ══════════════════════════════════════════════════════════════════════
@@ -49,7 +50,7 @@
     function copy(q) { return JSON.parse(JSON.stringify(q)); }
     function cur(st) { return st.hist[st.cur]; }
     function refining(st) { return st.kind === 'refine'; }
-    function joinBody(st, t) { return st.pre && st.pre.body ? st.pre.body + '\n\n' + t : t; }
+    function joinBody(st, t) { return st.pre && st.pre.body && !st.pre.note ? st.pre.body + '\n\n' + t : t; }
     function joinSubj(st, s) { return st.pre && st.pre.subject.trim() ? st.pre.subject : s; }
     /* put the current version into the email: the whole draft, or just the refined range */
     function apply(st) {
@@ -93,7 +94,7 @@
       if (st.mode === 'compose') {
         o.focus = st.focus === 'subject' ? 'subject' : null; o.kbd = !!st.focus; o.bodyHtml = P.sel.body(st);
         o.bar = st.sel ? P.sel.pill('refine-open') : P.COMPOSE_ROW('open');
-        o.over = st.sel ? P.sel.MENU : '';
+        o.over = P.sel.menu(st);
         return P.shell(o);
       }
       if (refining(st)) o.bodyHtml = refineBody(st);
@@ -115,7 +116,7 @@
           else {
             o.padBottom = 140;
             if (g.text != null) { o.subject = g.subject; o.body = g.text; o.pin = true; }
-            else if (g.first) o.bodyHtml = (st.pre.body ? P.fmt(st.pre.body) + '<br><br>' : '') + P.BARS;
+            else if (g.first) o.bodyHtml = (st.pre.body && !st.pre.note ? P.fmt(st.pre.body) + '<br><br>' : '') + P.BARS;
             else o.bodyHtml = '<div class="shimmer">' + P.fmt(st.body) + '</div>';
           }
           o.sheet = P.dock(P.cField({ text: refining(st) ? 'Refining…' : 'Generating…', ph: true, busy: 'stop', close: 'stop' }));
@@ -154,7 +155,7 @@
         });
         return api.render();
       }
-      if (first) st.pre = { subject: st.subject, body: st.body.replace(/\s+$/, '') };
+      if (first) st.pre = { subject: st.subject, body: st.body.replace(/\s+$/, ''), note: !!q.context };
       var out = P.ai.compose(q);
       st.gen = { first: first, text: null, subject: joinSubj(st, out.subject) };
       st.stop = P.stream(out.text, function (t) { st.gen.text = joinBody(st, t); api.render(); }, function () {
@@ -215,7 +216,9 @@
           return api.render();
         case 'go':
           if (!st.prompt.trim()) return;
-          return gen(st, api, refining(st) ? P.ai.refineSel(P.ai.selParams(), st.prompt.trim()) : P.ai.params(st.prompt.trim()), true);
+          /* a short note already in the email ("Vendor quotes") is context for the draft, and the draft takes its place */
+          return gen(st, api, refining(st) ? P.ai.refineSel(P.ai.selParams(), st.prompt.trim())
+            : P.ai.params(st.prompt.trim(), null, null, P.ai.isNote(st.body) ? st.body.trim() : ''), true);
         case 'close': close(st); return api.render();
         case 'stop': return stop(st, api);
         case 'menu':      /* same chip, or a tap anywhere else, closes it */
