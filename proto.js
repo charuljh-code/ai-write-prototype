@@ -1316,11 +1316,22 @@ var P = (function () {
 
   /* cfg: init() → state, view(st) → html, act(a, el, st, api),
      target(st, api) → keyboard target or null, escape(st, api) */
+  /* Switching between the options keeps your work: each option writes the
+     email and any open AI Write session to the tab's session storage in a
+     shared shape (cfg.save), and the other option reads it back (cfg.load). */
+  var SAVE_KEY = 'aiw-workflow';
+  function readSaved() { try { return JSON.parse(sessionStorage.getItem(SAVE_KEY)); } catch (e) { return null; } }
+  function writeSaved(v) { try { sessionStorage.setItem(SAVE_KEY, JSON.stringify(v)); } catch (e) { } }
+
   function app(cfg) {
     var root = document.getElementById('phone'), st = cfg.init(), toastTimer = null;
+    var saved = readSaved();
+    if (saved && cfg.load) try { cfg.load(st, saved); } catch (e) { st = cfg.init(); }
+    function save() { if (cfg.save) try { writeSaved(cfg.save(st)); } catch (e) { } }
+    window.addEventListener('pagehide', save);
     var api = {
       state: function () { return st; },
-      render: function () { mount(root, cfg.view(st)); if (cfg.after) cfg.after(root, st); },
+      render: function () { mount(root, cfg.view(st)); if (cfg.after) cfg.after(root, st); save(); },
       reset: function () {
         if (st.stop) st.stop();
         clearTimeout(toastTimer);
@@ -1368,6 +1379,7 @@ var P = (function () {
       }
     }
     function stopRepeat() { clearTimeout(repeat); clearInterval(repeat); repeat = null; }
+    var kbdTap = 0;
     root.addEventListener('pointerdown', function (e) {
       var kbdEl = e.target.closest('.ios-kbd');
       if (!kbdEl || e.button > 0) return;
@@ -1377,6 +1389,7 @@ var P = (function () {
       if (k.dataset.sug != null) { press('sug'); return pick(k.dataset.sug); }
       var c = k.dataset.key;
       typeKey(c);
+      if (!root.querySelector('.ios-kbd')) kbdTap = Date.now();   /* that key put the keyboard away */
       if (c === 'del') {          /* hold to keep deleting */
         stopRepeat();
         repeat = setTimeout(function () { repeat = setInterval(function () { press('del'); backspace(); }, 70); }, 420);
@@ -1387,8 +1400,11 @@ var P = (function () {
     root.addEventListener('contextmenu', function (e) { e.preventDefault(); });
     root.addEventListener('click', function (e) {
       if (e.target.closest('.ios-kbd')) return;     /* already typed on pointerdown */
+      /* a key like Send can take the keyboard away before the finger lifts:
+         the click that follows lands on whatever was under it — ignore it */
+      if (Date.now() - kbdTap < 600) return;
       var a = e.target.closest('[data-act]');
-      if (!a) return;
+      if (!a) { if (cfg.outside) cfg.outside(st, api, e.target); return; }
       var name = a.dataset.act;
       /* header: Send and × both start a fresh email */
       if (name === 'send' || name === 'trash') {

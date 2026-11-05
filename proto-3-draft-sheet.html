@@ -56,11 +56,18 @@
 
     /* ── the sheet ─────────────────────────────────────────────────── */
 
-    function sheet(inner, kbdUp) {
-      return '<div class="ds-sheet' + (kbdUp ? ' kb' : '') + '"><div class="sw-grab"></div>' +
+    /* no × — a tap outside the sheet closes it. The header's right side
+       carries the one primary action (Insert / Replace) once there's a draft. */
+    var sheetH = null;      /* height the sheet was dragged to; null = its default */
+    function sheet(inner, kbdUp, action) {
+      return '<div class="ds-sheet' + (kbdUp ? ' kb' : ' drag') + '"' + (!kbdUp && sheetH ? ' style="height:' + sheetH + 'px"' : '') +
+        '><div class="sw-grab"></div>' +
         '<div class="sw-head">' + ico('i-ai-write') + '<span class="sw-title">Smart Write by Titan AI</span>' +
-        '<svg class="icon sw-x" data-act="close"><use href="#i-close"/></svg></div>' +
+        (action || '') + '</div>' +
         inner + (kbdUp ? '' : '<div class="home-ind"></div>') + '</div>';
+    }
+    function primary(st, on) {
+      return '<button type="button" class="sw-btn ds-insert' + (on ? '" data-act="insert"' : ' off"') + '>' + (refining(st) ? 'Replace' : 'Insert') + '</button>';
     }
 
     /* write: subject + body. refine: the selection on top, the rewrite below */
@@ -95,11 +102,12 @@
       switch (st.phase) {
         case 'prompt':
           o.kbd = !!st.left;
-          if (refining(st)) { o.fieldsBottom = 336 + 112; o.catcher = st.menu ? 'menu' : ''; }
+          if (refining(st)) o.fieldsBottom = 336 + 112;
           /* refine adds the sheet's own Tone / Length dropdowns under the prompt */
+          o.catcher = st.menu ? 'menu' : 'close';     /* a tap above the dock closes AI Write */
           o.sheet = P.dock(P.cField({
             text: st.prompt || (refining(st) ? 'Describe how to change it' : 'Describe your email'), ph: !st.prompt,
-            focus: !!st.left, off: !st.left, count: st.left + ' left', send: st.prompt.trim() && st.left ? 'go' : '', close: 'close'
+            focus: !!st.left, off: !st.left, count: st.left + ' left', send: st.prompt.trim() && st.left ? 'go' : ''
           }) + (refining(st) && st.left ? '<div class="cx-row">' +
             P.cChip('tone', 'Tone', P.TONES, st.menu === 'tone') + P.cChip('len', 'Length', P.sel.LENS, st.menu === 'len') +
             '</div>' : '') + (st.left ? '' : P.cLeft(0)), !!st.left);
@@ -114,24 +122,24 @@
           o.sheet = sheet('<div class="sw-status">' + ico('i-ai-write') + '<span>' +
             (!g.first ? 'Rewriting' : refining(st) ? 'Refining your selection' : 'Writing your draft') +
             '</span><span class="dots"></span></div>' + c +
-            '<div class="sw-foot fill"><button type="button" class="sw-btn ghost" data-act="stop">' + ico('i-stop') + ' Stop</button></div>');
+            '<div class="ds-bottom"><div class="sw-foot fill"><button type="button" class="sw-btn ghost" data-act="stop">' + ico('i-stop') + ' Stop</button></div></div>',
+            false, primary(st, false));
           return P.shell(o);
 
         case 'sheet':
           if (st.asking) {  /* keyboard back, sheet rides on it, text still readable */
-            o.kbd = true; o.scrim = 'cancel-ask';
-            o.sheet = sheet(reviewCard(st, 'cancel-ask') + P.cField({
+            o.kbd = true; o.scrim = 'close';
+            o.sheet = sheet(reviewCard(st, 'cancel-ask') + '<div class="ds-bottom">' + P.cField({
               text: st.ask || 'Describe your change', ph: !st.ask, focus: true,
-              send: st.ask.trim() ? 'refine' : '', close: 'cancel-ask'
-            }), true);
+              send: st.ask.trim() ? 'refine' : ''
+            }) + '</div>', true, primary(st, true));
             return P.shell(o);
           }
           o.scrim = st.menu ? 'menu' : 'close'; o.over = over;
-          o.sheet = sheet(reviewCard(st, st.menu ? 'menu' : '') + tools(st) + P.cLeft(st.left) +
-            P.cField({ text: 'Describe your change', ph: true, tap: 'ask', off: !st.left }) +
-            '<div class="sw-foot fill"><button type="button" class="sw-btn ghost' + (st.left ? '" data-act="regen"' : ' off"') + '>' +
-            ico('i-retry') + ' Regenerate</button>' +
-            '<button type="button" class="sw-btn" data-act="insert">' + (refining(st) ? 'Replace' : 'Insert') + '</button></div>');
+          /* draft · divider · Tone / Length + feedback · describe a change · suggestions left */
+          o.sheet = sheet(reviewCard(st, st.menu ? 'menu' : '') + '<div class="ds-bottom">' + tools(st) +
+            P.cField({ text: 'Describe your change', ph: true, tap: 'ask', off: !st.left }) + P.cLeft(st.left) + '</div>',
+            false, primary(st, true));
           return P.shell(o);
       }
     }
@@ -170,6 +178,16 @@
       if (refining(st) && st.rf) { st.sel = { s: st.rf.s, e: st.rf.e }; st.rf = null; }
     }
 
+    /* reopen a session that was closed by tapping outside, if the email hasn't changed since */
+    function resume(st, kind) {
+      var k = st.kept;
+      if (!k || k.kind !== kind || k.body !== st.body) return false;
+      if (kind === 'refine' && !(st.sel && st.sel.s === k.rf.s && st.sel.e === k.rf.e)) return false;
+      st.kind = kind; st.rf = k.rf; st.kept = null; st.sel = null; st.flash = null; st.toast = null; st.menu = null;
+      st.mode = 'ai'; st.phase = 'sheet'; st.focus = null; st.asking = false;
+      return true;
+    }
+
     function act(a, el, st, api) {
       var p = a.split(':'), q;
       switch (p[0]) {
@@ -179,13 +197,16 @@
           if (st.mode !== 'compose') toCompose(st);
           st.focus = p[1]; st.sel = null; st.flash = null; st.caret = null;
           return api.render();
-        case 'open':      /* a fresh session once the last draft went into the email */
-          st.hist = []; st.cur = 0; st.fb = {}; st.prompt = ''; st.undo = null;
+        case 'open':      /* back to the drafts you tapped away from, or a fresh session */
+          if (resume(st, 'write')) return api.render();
+          st.hist = []; st.cur = 0; st.fb = {}; st.prompt = ''; st.undo = null; st.kept = null;
           st.kind = 'write'; st.sel = null; st.flash = null;
           st.mode = 'ai'; st.phase = 'prompt'; st.focus = st.left ? 'prompt' : null; st.toast = null;
           return api.render();
         case 'refine-open':
           if (!st.sel) return;
+          if (resume(st, 'refine')) return api.render();
+          st.kept = null;
           st.rf = { s: st.sel.s, e: st.sel.e, orig: st.body.slice(st.sel.s, st.sel.e) };
           st.hist = []; st.cur = 0; st.fb = {}; st.prompt = ''; st.undo = null;
           st.kind = 'refine'; st.sel = null; st.flash = null;
@@ -196,10 +217,10 @@
           /* a short note already in the email ("Vendor quotes") is context for the draft, and the draft takes its place */
           return gen(st, api, refining(st) ? P.ai.refineSel(P.ai.selParams(), st.prompt.trim())
             : P.ai.params(st.prompt.trim(), null, null, P.ai.isNote(st.body) ? st.body.trim() : ''), true);
-        case 'close':     /* the prompt alone is cheap to lose; a draft asks first */
-          if (st.phase === 'prompt') { toCompose(st); return api.render(); }
-          if (st.phase === 'gen' && !st.hist.length) { stop(st, api); toCompose(st); return api.render(); }
-          st.confirm = true; st.menu = null;
+        case 'close':     /* a tap outside: AI Write closes; drafts are kept, so reopening picks up where you left off */
+          if (st.phase === 'gen') stop(st, api);
+          st.kept = st.hist.length ? { kind: st.kind, rf: st.rf && { s: st.rf.s, e: st.rf.e, orig: st.rf.orig }, body: st.body } : null;
+          toCompose(st);
           return api.render();
         case 'keep': st.confirm = false; return api.render();
         case 'discard':
@@ -245,10 +266,13 @@
           return api.toast({ msg: 'Upgrade opens here — not part of this prototype', top: 160 });
         case 'insert':    /* only now does anything reach the email */
           var v = cur(st), s, e;
+          st.kept = null;
           st.undo = { kind: st.kind, subject: st.subject, body: st.body, rf: st.rf };
           if (refining(st)) {           /* Replace: only the selected text changes */
             s = st.rf.s;
-            st.body = st.body.slice(0, s) + v.text + st.body.slice(st.rf.e);
+            var rest = st.body.slice(st.rf.e);
+            if (/[.!?]$/.test(v.text) && /^[.!?]/.test(rest)) v = { text: v.text.slice(0, -1) };   /* no ".." */
+            st.body = st.body.slice(0, s) + v.text + rest;
             st.rf = null;
           } else {
             if (!st.subject.trim()) st.subject = v.subject;
@@ -307,11 +331,84 @@
         return null;
       },
       view: view, act: act, escape: escape,
+      /* switching options: the email (no draft applied — this option never
+         applies one before Insert) plus the open session — see P.app */
+      save: function (st) {
+        var o = { subject: st.subject, body: st.body, caret: st.caret, sel: st.sel, left: st.left,
+          focus: st.mode === 'compose' ? st.focus : null, ai: null };
+        if (st.mode !== 'ai') return o;
+        var ctx = st.hist[0] && st.hist[0].params.context;
+        o.ai = { kind: st.kind, prompt: st.prompt, ask: st.ask, rf: st.rf ? { s: st.rf.s, e: st.rf.e, orig: st.rf.orig } : null,
+          hist: st.hist.map(function (h) { return { params: h.params, subject: h.subject, text: h.text }; }), cur: st.cur,
+          pre: { subject: st.subject, body: st.body, note: !!ctx && st.body.trim() === ctx } };
+        return o;
+      },
+      load: function (st, s) {
+        st.subject = s.subject || ''; st.body = s.body || ''; st.caret = s.caret; st.sel = s.sel || null; if (s.left != null) st.left = s.left;
+        st.focus = s.focus === undefined ? 'body' : s.focus;
+        var ai = s.ai;
+        if (!ai || (ai.kind === 'refine' && !ai.rf)) return;
+        st.mode = 'ai'; st.kind = ai.kind; st.prompt = ai.prompt || ''; st.ask = ai.ask || ''; st.fb = {}; st.sel = null;
+        st.rf = ai.kind === 'refine' ? { s: ai.rf.s, e: ai.rf.e, orig: ai.rf.orig } : null;
+        st.hist = ai.hist; st.cur = Math.max(0, Math.min(ai.cur, ai.hist.length - 1));
+        st.phase = ai.hist.length ? 'sheet' : 'prompt'; st.focus = st.phase === 'prompt' && st.left ? 'prompt' : null;
+      },
       after: function (root, st) { P.sel.place(root, st.mode === 'ai' && st.phase === 'prompt'); }
     });
 
 
     P.sel.watch(A, function (st) { return st.mode === 'compose'; });
+
+    /* ── the sheet drags by its handle / header ──────────────────────────
+       Drag up to make it taller (up to just under the status bar), down to
+       make it shorter; let go and it settles on the nearest of three heights.
+       Pulled down far enough, it closes AI Write — same as a tap outside. */
+    (function dragSheet() {
+      var phone = document.getElementById('phone'), d = null;
+      function k() { var p = phone.querySelector('.phone'); return p ? p.getBoundingClientRect().width / 402 : 1; }
+      function ph() { var p = phone.querySelector('.phone'); return p ? p.offsetHeight : 874; }
+      function stops() { var H = ph(); return { low: Math.round(H * 0.5), mid: Math.min(640, H - 96), max: H - 60 }; }
+      function start(y, target) {
+        var st = A.state(), el = target.closest && target.closest('.ds-sheet.drag');
+        if (!el || st.mode !== 'ai' || target.closest('[data-act]') || !target.closest('.sw-grab, .sw-head')) return false;
+        d = { y: y, h: el.getBoundingClientRect().height / k(), el: el, moved: false };
+        el.classList.remove('snap');
+        return true;
+      }
+      function move(y) {
+        if (!d) return;
+        var s = stops(), el = phone.querySelector('.ds-sheet.drag') || d.el;
+        var h = Math.max(140, Math.min(s.max, d.h - (y - d.y) / k()));
+        if (Math.abs(y - d.y) > 4) d.moved = true;
+        d.cur = h; el.style.height = h + 'px'; sheetH = Math.round(h);
+      }
+      function end() {
+        if (!d) return;
+        var s = stops(), h = d.cur, moved = d.moved; d = null;
+        if (!moved || h == null) return;
+        if (h < s.low * 0.75) { sheetH = null; return A.render(), actClose(); }
+        var pick = [s.low, s.mid, s.max].reduce(function (a, b) { return Math.abs(b - h) < Math.abs(a - h) ? b : a; });
+        sheetH = pick === s.mid ? null : pick;
+        var el = phone.querySelector('.ds-sheet.drag');
+        if (el) { el.classList.add('snap'); el.style.height = pick + 'px'; }
+        setTimeout(function () { A.render(); }, 230);
+      }
+      function actClose() { var st = A.state(); act('close', null, st, A); }
+      phone.addEventListener('touchstart', function (e) {
+        if (e.touches.length !== 1 || !start(e.touches[0].clientY, e.target)) return;
+        var t = e.target;       /* a re-render (the draft streaming in) detaches it: keep listening on it */
+        function tm(ev) { ev.preventDefault(); move(ev.touches[0].clientY); }
+        function te() { t.removeEventListener('touchmove', tm); t.removeEventListener('touchend', te); t.removeEventListener('touchcancel', te); end(); }
+        t.addEventListener('touchmove', tm, { passive: false }); t.addEventListener('touchend', te); t.addEventListener('touchcancel', te);
+      }, { passive: true });
+      phone.addEventListener('mousedown', function (e) {
+        if (e.button || !start(e.clientY, e.target)) return;
+        e.preventDefault();
+        function mm(ev) { move(ev.clientY); }
+        function mu() { document.removeEventListener('mousemove', mm); document.removeEventListener('mouseup', mu); end(); }
+        document.addEventListener('mousemove', mm); document.addEventListener('mouseup', mu);
+      });
+    })();
   </script>
 </body>
 

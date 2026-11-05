@@ -57,8 +57,10 @@
       var v = cur(st);
       if (!refining(st) && v.original) { st.subject = st.pre.subject; st.body = st.pre.body; return; }   /* undo back to before AI Write */
       if (!refining(st)) { st.subject = joinSubj(st, v.subject); st.body = joinBody(st, v.text); return; }
-      st.body = st.body.slice(0, st.rf.s) + v.text + st.body.slice(st.rf.e);
-      st.rf.e = st.rf.s + v.text.length;
+      var t = v.text, rest = st.body.slice(st.rf.e);
+      if (/[.!?]$/.test(t) && /^[.!?]/.test(rest)) t = t.slice(0, -1);   /* no ".." where the sentence already ends */
+      st.body = st.body.slice(0, st.rf.s) + t + rest;
+      st.rf.e = st.rf.s + t.length;
     }
 
     function ib(id, act) {
@@ -101,10 +103,10 @@
       switch (st.phase) {
         case 'prompt':    /* the bar becomes the prompt — riding on the keyboard */
           o.kbd = !!st.left; o.fieldsBottom = refining(st) ? 336 + 112 : 400;
-          if (refining(st)) o.catcher = st.menu ? 'menu' : '';
+          o.catcher = st.menu ? 'menu' : 'close';   /* a tap above the dock closes AI Write */
           o.sheet = P.dock(P.cField({
             text: st.prompt || (refining(st) ? 'Describe how to change it' : 'Describe your email'), ph: !st.prompt,
-            focus: !!st.left, off: !st.left, count: st.left + ' left', send: st.prompt.trim() && st.left ? 'go' : '', close: 'close'
+            focus: !!st.left, off: !st.left, count: st.left + ' left', send: st.prompt.trim() && st.left ? 'go' : ''
           }) + (refining(st) && st.left ? '<div class="cx-row">' +
             P.cChip('tone', 'Tone', P.TONES, st.menu === 'tone') + P.cChip('len', 'Length', P.sel.LENS, st.menu === 'len') +
             '</div>' : '') + (st.left ? '' : P.cLeft(0)), !!st.left);
@@ -119,21 +121,21 @@
             else if (g.first) o.bodyHtml = (st.pre.body && !st.pre.note ? P.fmt(st.pre.body) + '<br><br>' : '') + P.BARS;
             else o.bodyHtml = '<div class="shimmer">' + P.fmt(st.body) + '</div>';
           }
-          o.sheet = P.dock(P.cField({ text: refining(st) ? 'Refining…' : 'Generating…', ph: true, busy: 'stop', close: 'stop' }));
+          o.sheet = P.dock(P.cField({ text: refining(st) ? 'Refining…' : 'Generating…', ph: true, busy: 'stop' }));
           return P.shell(o);
 
         case 'refine':
           if (st.asking) {  /* typing a follow-up: shortcuts step aside, keyboard back */
-            o.kbd = true; o.fieldsBottom = 400; o.catcher = 'cancel-ask'; o.scrollKey = 'v' + st.cur;
+            o.kbd = true; o.fieldsBottom = 400; o.catcher = 'close'; o.scrollKey = 'v' + st.cur;
             o.sheet = P.dock(P.cField({
               text: st.ask || 'Describe your change', ph: !st.ask, focus: true,
-              send: st.ask.trim() ? 'refine' : '', close: 'cancel-ask'
+              send: st.ask.trim() ? 'refine' : ''
             }), true);
             return P.shell(o);
           }
           if (refining(st)) o.fieldsBottom = 200; else { o.padBottom = 200; o.scrollKey = 'v' + st.cur; }
           o.catcher = st.menu ? 'menu' : '';
-          o.sheet = P.dock(P.cField({ text: 'Describe your change', ph: true, tap: 'ask', close: 'close', off: !st.left }) +
+          o.sheet = P.dock(P.cField({ text: 'Describe your change', ph: true, tap: 'ask', off: !st.left }) +
             tools(st) + P.cLeft(st.left));
           return P.shell(o);
       }
@@ -194,7 +196,7 @@
       switch (p[0]) {
         case 'focus':     /* tapping the email to edit it puts the dock away */
           if (p[1] === 'body' && P.sel.tapped()) return;
-          if (st.mode === 'dock' && st.phase === 'gen') return;
+          if (st.mode === 'dock' && st.phase === 'gen') stop(st, api);
           if (st.mode === 'dock') close(st);
           st.focus = p[1]; st.sel = null; st.flash = null; st.caret = null;
           return api.render();
@@ -219,7 +221,9 @@
           /* a short note already in the email ("Vendor quotes") is context for the draft, and the draft takes its place */
           return gen(st, api, refining(st) ? P.ai.refineSel(P.ai.selParams(), st.prompt.trim())
             : P.ai.params(st.prompt.trim(), null, null, P.ai.isNote(st.body) ? st.body.trim() : ''), true);
-        case 'close': close(st); return api.render();
+        case 'close':     /* also a tap anywhere outside the dock */
+          if (st.phase === 'gen') stop(st, api);
+          close(st); return api.render();
         case 'stop': return stop(st, api);
         case 'menu':      /* same chip, or a tap anywhere else, closes it */
           st.menu = p[1] && st.menu !== p[1] ? p[1] : null;
@@ -293,6 +297,45 @@
         return null;
       },
       view: view, act: act, escape: escape,
+      /* switching options: hand over the email as it is without the AI draft
+         applied, plus the open session (versions, prompt) — see P.app */
+      save: function (st) {
+        var o = { subject: st.subject, body: st.body, caret: st.caret, sel: st.sel, left: st.left,
+          focus: st.mode === 'compose' ? st.focus : null, ai: null };
+        if (st.mode !== 'dock') return o;
+        var vs = [], at = 0;
+        st.hist.forEach(function (h, i) { if (!h.original) { if (i <= st.cur) at = vs.length; vs.push({ params: h.params, subject: h.subject, text: h.text }); } });
+        var ai = { kind: st.kind, prompt: st.prompt, ask: st.ask, hist: vs, cur: at, rf: null, pre: null };
+        if (refining(st) && st.rf) {
+          o.body = st.body.slice(0, st.rf.s) + st.rf.orig + st.body.slice(st.rf.e);
+          ai.rf = { s: st.rf.s, e: st.rf.s + st.rf.orig.length, orig: st.rf.orig };
+        } else if (st.pre) {
+          o.subject = st.pre.subject; o.body = st.pre.body;
+          ai.pre = { subject: st.pre.subject, body: st.pre.body, note: !!st.pre.note };
+        }
+        o.ai = ai;
+        return o;
+      },
+      load: function (st, s) {
+        st.subject = s.subject || ''; st.body = s.body || ''; st.caret = s.caret; st.sel = s.sel || null; if (s.left != null) st.left = s.left;
+        st.focus = s.focus === undefined ? 'body' : s.focus;
+        var ai = s.ai;
+        if (!ai || (ai.kind === 'refine' && !ai.rf)) return;
+        st.mode = 'dock'; st.kind = ai.kind; st.prompt = ai.prompt || ''; st.ask = ai.ask || ''; st.fb = {}; st.sel = null;
+        if (ai.kind === 'refine') st.rf = { s: ai.rf.s, e: ai.rf.e, orig: ai.rf.orig };
+        if (!ai.hist.length) { st.phase = 'prompt'; st.focus = st.left ? 'prompt' : null; return; }
+        if (ai.kind === 'refine') st.hist = [{ params: P.ai.selParams(), text: st.rf.orig, original: true }];
+        else {
+          st.pre = ai.pre || { subject: st.subject, body: st.body, note: false };
+          st.hist = [{ params: copy(ai.hist[0].params), subject: st.pre.subject, text: st.pre.body, original: true }];
+        }
+        st.hist = st.hist.concat(ai.hist); st.cur = Math.min(ai.cur, ai.hist.length - 1) + 1;
+        apply(st); st.phase = 'refine'; st.focus = null;
+      },
+      /* a tap on the phone that isn't on a control or the dock closes AI Write */
+      outside: function (st, api, t) {
+        if (st.mode === 'dock' && !t.closest('.cx, .toast, .ios-kbd')) act('close', null, st, api);
+      },
       after: function (root, st) { P.sel.place(root, st.mode === 'dock' && refining(st)); }
     });
 

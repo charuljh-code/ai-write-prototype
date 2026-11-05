@@ -2218,3 +2218,51 @@ svg.icon.ai-ico {
 }
 .hd.lead b::after { bottom: -10px; }
 .hd.trail b::after { top: -10px; }
+
+/* ══════════════ option 2 — sheet: header action, bottom section ═════════ */
+/* the sheet never covers the whole phone, so there is always something to tap outside it */
+.ds-sheet { height: min(640px, calc(var(--ph, 874px) - 96px)); }
+.ds-sheet.kb { height: min(430px, calc(var(--ph, 874px) - 336px - 72px)); }
+/* Insert / Replace sits where the × used to be */
+.ds-sheet .sw-head { height: 32px; }
+.ds-sheet .ds-insert {
+  flex: none;
+  margin-left: auto;
+  min-height: 32px;
+  padding: 6px 16px;
+  font-size: 14px;
+}
+/* everything under the draft is one section, set off by a divider */
+.ds-bottom {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0 -16px;
+  padding: 12px 16px 0;
+  border-top: 1px solid #ebebeb;
+}
+.ds-bottom .cx-row { margin: 0; }
+.ds-bottom .cx-meta { text-align: center; }
+
+/* the sheet's handle and header are its drag area */
+.ds-sheet.drag .sw-grab,
+.ds-sheet.drag .sw-head {
+  touch-action: none;
+  cursor: grab;
+}
+.ds-sheet.drag .sw-grab {
+  /* a taller invisible strip around the little bar, so it's easy to catch */
+  position: relative;
+}
+.ds-sheet.drag .sw-grab::after {
+  content: '';
+  position: absolute;
+  left: -60px;
+  right: -60px;
+  top: -14px;
+  bottom: -10px;
+}
+.ds-sheet.drag .sw-head .ds-insert { cursor: pointer; }
+.ds-sheet.snap { transition: height .22s cubic-bezier(.2, .8, .2, 1); }
+@media (prefers-reduced-motion: reduce) { .ds-sheet.snap { transition: none; } }
