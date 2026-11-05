@@ -149,6 +149,7 @@
     function gen(st, api, q, first) {
       if (!st.left) return;
       st.left--; st.phase = 'gen'; st.asking = false; st.focus = null; st.menu = null; st.prompt = '';
+      if (refining(st) && st.rf.whole) q.whole = true;   /* the whole email: "draft an email…" replaces all of it */
       var out = refining(st) ? { subject: '', text: P.ai.rewrite(st.rf.orig, q) } : P.ai.compose(q);
       /* a new version never repeats the one on screen */
       for (var n = 0; refining(st) && st.hist.length && out.text === cur(st).text && n < 4; n++) {
@@ -199,6 +200,13 @@
           return api.render();
         case 'open':      /* back to the drafts you tapped away from, or a fresh session */
           if (resume(st, 'write')) return api.render();
+          /* there's already writing in the email and nothing is selected:
+             AI Write works on all of it, the same as selecting it all and tapping AI Refine */
+          var all = st.body.search(/\S/);
+          if (all >= 0) {
+            st.sel = { s: all, e: st.body.replace(/\s+$/, '').length };
+            return act('refine-open', el, st, api);
+          }
           st.hist = []; st.cur = 0; st.fb = {}; st.prompt = ''; st.undo = null; st.kept = null;
           st.kind = 'write'; st.sel = null; st.flash = null;
           st.mode = 'ai'; st.phase = 'prompt'; st.focus = st.left ? 'prompt' : null; st.toast = null;
@@ -207,7 +215,8 @@
           if (!st.sel) return;
           if (resume(st, 'refine')) return api.render();
           st.kept = null;
-          st.rf = { s: st.sel.s, e: st.sel.e, orig: st.body.slice(st.sel.s, st.sel.e) };
+          st.rf = { s: st.sel.s, e: st.sel.e, orig: st.body.slice(st.sel.s, st.sel.e),
+            whole: !st.body.slice(0, st.sel.s).trim() && !st.body.slice(st.sel.e).trim() };
           st.hist = []; st.cur = 0; st.fb = {}; st.prompt = ''; st.undo = null;
           st.kind = 'refine'; st.sel = null; st.flash = null;
           st.mode = 'ai'; st.phase = 'prompt'; st.focus = st.left ? 'prompt' : null; st.toast = null;
@@ -270,6 +279,8 @@
           st.undo = { kind: st.kind, subject: st.subject, body: st.body, rf: st.rf };
           if (refining(st)) {           /* Replace: only the selected text changes */
             s = st.rf.s;
+            /* a whole new email written over the old text also fills an empty subject */
+            if (v.params && v.params.whole && v.params._subject && !st.subject.trim()) st.subject = v.params._subject;
             var rest = st.body.slice(st.rf.e);
             if (/[.!?]$/.test(v.text) && /^[.!?]/.test(rest)) v = { text: v.text.slice(0, -1) };   /* no ".." */
             st.body = st.body.slice(0, s) + v.text + rest;
