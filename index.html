@@ -331,27 +331,11 @@
         return null;
       },
       view: view, act: act, escape: escape,
-      /* switching options: the email (no draft applied — this option never
-         applies one before Insert) plus the open session — see P.app */
-      save: function (st) {
-        var o = { subject: st.subject, body: st.body, caret: st.caret, sel: st.sel, left: st.left,
-          focus: st.mode === 'compose' ? st.focus : null, ai: null };
-        if (st.mode !== 'ai') return o;
-        var ctx = st.hist[0] && st.hist[0].params.context;
-        o.ai = { kind: st.kind, prompt: st.prompt, ask: st.ask, rf: st.rf ? { s: st.rf.s, e: st.rf.e, orig: st.rf.orig } : null,
-          hist: st.hist.map(function (h) { return { params: h.params, subject: h.subject, text: h.text }; }), cur: st.cur,
-          pre: { subject: st.subject, body: st.body, note: !!ctx && st.body.trim() === ctx } };
-        return o;
-      },
-      load: function (st, s) {
-        st.subject = s.subject || ''; st.body = s.body || ''; st.caret = s.caret; st.sel = s.sel || null; if (s.left != null) st.left = s.left;
-        st.focus = s.focus === undefined ? 'body' : s.focus;
-        var ai = s.ai;
-        if (!ai || (ai.kind === 'refine' && !ai.rf)) return;
-        st.mode = 'ai'; st.kind = ai.kind; st.prompt = ai.prompt || ''; st.ask = ai.ask || ''; st.fb = {}; st.sel = null;
-        st.rf = ai.kind === 'refine' ? { s: ai.rf.s, e: ai.rf.e, orig: ai.rf.orig } : null;
-        st.hist = ai.hist; st.cur = Math.max(0, Math.min(ai.cur, ai.hist.length - 1));
-        st.phase = ai.hist.length ? 'sheet' : 'prompt'; st.focus = st.phase === 'prompt' && st.left ? 'prompt' : null;
+      /* each option remembers its own progress when you switch away and back */
+      key: 'opt2',
+      restored: function (st) {
+        if (st.phase === 'gen') { st.left++; st.phase = st.hist.length ? 'sheet' : 'prompt'; st.focus = st.phase === 'prompt' && st.left ? 'prompt' : null; }
+        st.confirm = false; st.asking = false;
       },
       after: function (root, st) { P.sel.place(root, st.mode === 'ai' && st.phase === 'prompt'); }
     });

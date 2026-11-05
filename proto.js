@@ -773,6 +773,9 @@ var P = (function () {
     return swap(t.replace(/([^•\s])[ \t]{2,}/g, '$1 ').replace(/\s+([,.!?])/g, '$1').replace(/,(?=[^\s\d])/g, ', ').replace(/\bi\b/g, 'I'), TYPOS);
   }
   function grammar(t) {
+    /* names from this email, and the comma after a greeting: "hey jim the" → "Hey Jim, the" */
+    t = t.replace(/\b(jim|halpert|amy)\b/g, function (m) { return cap(m); })
+      .replace(/^(hi|hello|hey|dear)\s+([A-Z][a-z]+|team|all|everyone)(?![,\w])\s*/i, function (m, g, n) { return cap(g.toLowerCase()) + ' ' + n + ', '; });
     var s = fixCaps(tidy(t));
     return /[A-Za-z0-9]$/.test(s) && words(s) >= 5 ? s + '.' : s;
   }
@@ -811,13 +814,15 @@ var P = (function () {
     if (q.write) {
       var out = compose({ prompt: q.write, context: text, tone: q.tone === 'Casual' || q.tone === 'Friendly' ? q.tone : 'Professional',
         len: q.len === 'Longer' ? 'Long' : 'Short', variant: q.variant, adds: q.adds, bullets: false });
-      if (words(text) <= 12) return out.text;
+      q._subject = out.subject;          /* the page may use it when the subject is still empty */
+      if (words(text) <= 12 || q.whole) return out.text;
       return out.text.split('\n\n').slice(1, -2).join('\n\n');   /* inside a longer email: just the middle */
     }
     /* typos and stray phrasing ("Requsting for quotes") are always fixed */
     var orig = text;
     text = phrases(fixTypos(text));
-    var s = q.grammar ? grammar(text) : tidy(text);
+    /* any rewrite also leaves the grammar right — a tone change shouldn't keep "hey jim the report" */
+    var s = q.grammar || q.tone || q.len || q.improve ? grammar(text) : tidy(text);
     if (q.improve) s = improve(s);
     if (q.len === 'Shorter') s = shorten(s); else if (q.len === 'Longer') s = lengthen(s, q.variant);
     if (q.tone === 'Professional') s = formal(s); else if (q.tone === 'Casual') s = casual(s); else if (q.tone === 'Friendly') s = friendly(s);
@@ -834,10 +839,11 @@ var P = (function () {
   /* "Describe your change" for a selection → new params. Asking for what
      it already did counts as "try another way". */
   function refineSel(q, ask) {
+    var raw = fixTypos(ask).toLowerCase();
     ask = phrases(fixTypos(ask));
     var n = JSON.parse(JSON.stringify(q)), a = ask.toLowerCase(), hit = false, lines = 0;
     /* asking for an email, not a change to these words */
-    if (/\b(draft|write|compose|prepare|create)\b/.test(a) && /\b(e-?mail|mail|message|letter|note|reply)\b/.test(a) ||
+    if (/\b(draft|write|compose|prepare|create|need|want|give me)\b/.test(raw) && /\b(e-?mails?|mails?|message|letter|reply)\b/.test(raw) ||
         /^(an?\s+)?(e-?mail|mail)\b/.test(a) || /\b(turn|make|convert)\s+(this|it)\s+into\s+an?\s+(e-?mail|mail)\b/.test(a)) {
       n.write = ask; n.variant = q.write ? q.variant + 1 : 0; return n;
     }
@@ -1316,18 +1322,26 @@ var P = (function () {
 
   /* cfg: init() → state, view(st) → html, act(a, el, st, api),
      target(st, api) → keyboard target or null, escape(st, api) */
-  /* Switching between the options keeps your work: each option writes the
-     email and any open AI Write session to the tab's session storage in a
-     shared shape (cfg.save), and the other option reads it back (cfg.load). */
-  var SAVE_KEY = 'aiw-workflow';
-  function readSaved() { try { return JSON.parse(sessionStorage.getItem(SAVE_KEY)); } catch (e) { return null; } }
-  function writeSaved(v) { try { sessionStorage.setItem(SAVE_KEY, JSON.stringify(v)); } catch (e) { } }
+  /* Each option keeps its own progress in the tab's session storage, so
+     switching to the other option and back returns you to where you were.
+     Nothing is shared between options. */
+  function readSaved(k) { try { return JSON.parse(sessionStorage.getItem('aiw:' + k)); } catch (e) { return null; } }
+  function writeSaved(k, v) { try { sessionStorage.setItem('aiw:' + k, JSON.stringify(v)); } catch (e) { } }
+  var TRANSIENT = { gen: 1, stop: 1, toast: 1, menu: 1, dragging: 1, cmenu: 1 };
 
   function app(cfg) {
     var root = document.getElementById('phone'), st = cfg.init(), toastTimer = null;
-    var saved = readSaved();
-    if (saved && cfg.load) try { cfg.load(st, saved); } catch (e) { st = cfg.init(); }
-    function save() { if (cfg.save) try { writeSaved(cfg.save(st)); } catch (e) { } }
+    var key = cfg.key || location.pathname;
+    var saved = readSaved(key);
+    if (saved) try {
+      for (var x in saved) if (!TRANSIENT[x]) st[x] = saved[x];
+      if (cfg.restored) cfg.restored(st);
+    } catch (e) { st = cfg.init(); }
+    function save() {
+      var o = {};
+      for (var x in st) if (!TRANSIENT[x] && typeof st[x] !== 'function') o[x] = st[x];
+      writeSaved(key, o);
+    }
     window.addEventListener('pagehide', save);
     var api = {
       state: function () { return st; },

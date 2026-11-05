@@ -57,6 +57,8 @@
       var v = cur(st);
       if (!refining(st) && v.original) { st.subject = st.pre.subject; st.body = st.pre.body; return; }   /* undo back to before AI Write */
       if (!refining(st)) { st.subject = joinSubj(st, v.subject); st.body = joinBody(st, v.text); return; }
+      /* a whole new email written over the old text also fills an empty subject (undo takes it back) */
+      st.subject = v.params && v.params._subject && v.params.whole && !(st.rf.subj0 || '').trim() ? v.params._subject : (st.rf.subj0 != null ? st.rf.subj0 : st.subject);
       var t = v.text, rest = st.body.slice(st.rf.e);
       if (/[.!?]$/.test(t) && /^[.!?]/.test(rest)) t = t.slice(0, -1);   /* no ".." where the sentence already ends */
       st.body = st.body.slice(0, st.rf.s) + t + rest;
@@ -145,6 +147,7 @@
       if (!st.left) return;
       st.left--; st.phase = 'gen'; st.asking = false; st.focus = null; st.menu = null; st.prompt = '';
       if (refining(st)) {
+        if (st.rf.whole) q.whole = true;      /* the whole email: "draft an email…" replaces all of it */
         var text = P.ai.rewrite(st.rf.orig, q);
         /* a new version never repeats the one on screen */
         for (var n = 0; text === cur(st).text && n < 4; n++) { q.variant++; text = P.ai.rewrite(st.rf.orig, q); }
@@ -205,13 +208,20 @@
           if (st.hist.length && st.body === (cur(st).original && !refining(st) ? st.pre.body : joinBody(st, cur(st).text))) { st.phase = 'refine'; st.focus = null; }
           else {
             if (st.hist.length) { st.hist = []; st.cur = 0; st.fb = {}; st.prompt = ''; }
+            /* there's already writing in the email and nothing is selected:
+               AI Write works on all of it, with the same Tone / Length chips as a selection */
+            var all = st.body.search(/\S/);
+            if (all >= 0) {
+              st.sel = { s: all, e: st.body.replace(/\s+$/, '').length };
+              return act('refine-open', el, st, api);
+            }
             st.phase = 'prompt'; st.focus = st.left ? 'prompt' : null;
           }
           return api.render();
         case 'refine-open':   /* the original words are version 1, so undo can get back to them */
           if (!st.sel) return;
           var orig = st.body.slice(st.sel.s, st.sel.e);
-          st.rf = { s: st.sel.s, e: st.sel.e, orig: orig };
+          st.rf = { s: st.sel.s, e: st.sel.e, orig: orig, subj0: st.subject, whole: !st.body.slice(0, st.sel.s).trim() && !st.body.slice(st.sel.e).trim() };
           st.hist = [{ params: P.ai.selParams(), text: orig, original: true }]; st.cur = 0; st.fb = {}; st.prompt = '';
           st.kind = 'refine'; st.sel = null; st.flash = null; st.toast = null; st.menu = null; st.asking = false;
           st.mode = 'dock'; st.phase = 'prompt'; st.focus = st.left ? 'prompt' : null;
@@ -297,40 +307,10 @@
         return null;
       },
       view: view, act: act, escape: escape,
-      /* switching options: hand over the email as it is without the AI draft
-         applied, plus the open session (versions, prompt) — see P.app */
-      save: function (st) {
-        var o = { subject: st.subject, body: st.body, caret: st.caret, sel: st.sel, left: st.left,
-          focus: st.mode === 'compose' ? st.focus : null, ai: null };
-        if (st.mode !== 'dock') return o;
-        var vs = [], at = 0;
-        st.hist.forEach(function (h, i) { if (!h.original) { if (i <= st.cur) at = vs.length; vs.push({ params: h.params, subject: h.subject, text: h.text }); } });
-        var ai = { kind: st.kind, prompt: st.prompt, ask: st.ask, hist: vs, cur: at, rf: null, pre: null };
-        if (refining(st) && st.rf) {
-          o.body = st.body.slice(0, st.rf.s) + st.rf.orig + st.body.slice(st.rf.e);
-          ai.rf = { s: st.rf.s, e: st.rf.s + st.rf.orig.length, orig: st.rf.orig };
-        } else if (st.pre) {
-          o.subject = st.pre.subject; o.body = st.pre.body;
-          ai.pre = { subject: st.pre.subject, body: st.pre.body, note: !!st.pre.note };
-        }
-        o.ai = ai;
-        return o;
-      },
-      load: function (st, s) {
-        st.subject = s.subject || ''; st.body = s.body || ''; st.caret = s.caret; st.sel = s.sel || null; if (s.left != null) st.left = s.left;
-        st.focus = s.focus === undefined ? 'body' : s.focus;
-        var ai = s.ai;
-        if (!ai || (ai.kind === 'refine' && !ai.rf)) return;
-        st.mode = 'dock'; st.kind = ai.kind; st.prompt = ai.prompt || ''; st.ask = ai.ask || ''; st.fb = {}; st.sel = null;
-        if (ai.kind === 'refine') st.rf = { s: ai.rf.s, e: ai.rf.e, orig: ai.rf.orig };
-        if (!ai.hist.length) { st.phase = 'prompt'; st.focus = st.left ? 'prompt' : null; return; }
-        if (ai.kind === 'refine') st.hist = [{ params: P.ai.selParams(), text: st.rf.orig, original: true }];
-        else {
-          st.pre = ai.pre || { subject: st.subject, body: st.body, note: false };
-          st.hist = [{ params: copy(ai.hist[0].params), subject: st.pre.subject, text: st.pre.body, original: true }];
-        }
-        st.hist = st.hist.concat(ai.hist); st.cur = Math.min(ai.cur, ai.hist.length - 1) + 1;
-        apply(st); st.phase = 'refine'; st.focus = null;
+      /* each option remembers its own progress when you switch away and back */
+      key: 'opt1',
+      restored: function (st) {          /* left mid-generation: as if Stop was pressed */
+        if (st.phase === 'gen') { st.left++; st.phase = st.hist.length ? 'refine' : 'prompt'; st.focus = st.phase === 'prompt' && st.left ? 'prompt' : null; }
       },
       /* a tap on the phone that isn't on a control or the dock closes AI Write */
       outside: function (st, api, t) {
